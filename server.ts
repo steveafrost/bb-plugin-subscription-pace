@@ -1,0 +1,323 @@
+import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
+import { createRequire } from 'node:module';
+import { z } from 'zod';
+import { createCollector } from './collector.js';
+import { CODEX_PROVIDER, type ProviderUsage } from './sources/codex-usage.js';
+import { createSampleStore } from './sources/opencode-history.js';
+import { createStampStore } from './sources/manual-stamp.js';
+import { createSlotStore, kindChoices, type SlotValues } from './slots-store.js';
+import {
+  CATALOG, FIXED_KIND, FREE_KIND_OPTIONS, KIND_META, NO_KIND, SLOT_COUNT, isFreeKind, readSlots,
+} from './config.js';
+
+const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const slotSchema = z.object({
+  index: z.number().int().nonnegative(),
+  kind: z.string(),
+  label: z.string(),
+  source: z.enum(['vercel-gateway', 'opencode-usage', 'codex-usage', 'manual']),
+  status: z.enum(['ok', 'disabled', 'unauthenticated', 'unavailable', 'unentered']),
+  allowanceUsd: z.number().finite().nonnegative(),
+  usedPercent: z.number().finite().nullable(),
+  spentUsd: z.number().finite().nonnegative().nullable(),
+  remainingUsd: z.number().finite().nonnegative().nullable(),
+  ratePercentPerDay: z.number().finite().nonnegative().nullable(),
+  projectedPercent: z.number().finite().nullable(),
+  hitDay: daySchema.nullable(),
+  periodStart: daySchema,
+  periodEnd: daySchema,
+  renewal: daySchema,
+  resetsAt: z.string().nullable(),
+  daily: z.array(z.object({ day: daySchema, percent: z.number().finite() })),
+  windows: z.array(z.object({
+    key: z.string(),
+    percent: z.number().finite(),
+    resetsAt: z.string().nullable(),
+  })),
+  lastSpendDay: daySchema.nullable(),
+  staleSince: daySchema.nullable(),
+  carriedFrom: daySchema.nullable(),
+  carriedUnverified: z.boolean(),
+});
+
+const snapshotSchema = z.object({
+  slots: z.array(slotSchema),
+  overall: z.object({
+    readable: z.number().int().nonnegative(),
+    configured: z.number().int().nonnegative(),
+    weightedPercent: z.number().finite().nullable(),
+    spentUsd: z.number().finite().nonnegative().nullable(),
+    allowanceUsd: z.number().finite().nonnegative().nullable(),
+  }),
+  observedAt: z.number().int().nonnegative().nullable(),
+}).strict();
+
+/**
+ * Exported for the schema test. The RPC output schema strips unknown keys, so a
+ * field added to the collector but not here vanishes silently between server and
+ * UI; the test parses a real snapshot and asserts nothing was dropped.
+ */
+export { snapshotSchema };
+
+export const rpcContract = defineRpcContract({
+  getSnapshot: {
+    input: z.object({ refresh: z.boolean().optional().default(false) }).strict(),
+    output: snapshotSchema,
+  },
+  getSlotSettings: {
+    input: z.object({}).strict(),
+    output: z.object({
+      slots: z.array(z.object({
+        index: z.number().int().nonnegative(),
+        /** Fixed subscriptions cannot be re-picked; free slots can. */
+        locked: z.boolean(),
+        fields: z.array(z.object({
+          key: z.string(),
+          kind: z.enum(['boolean', 'number', 'select', 'text']),
+          label: z.string(),
+          description: z.string(),
+          /** Stored value, or null when the slot is on its default. */
+          value: z.union([z.string(), z.number(), z.boolean()]).nullable(),
+          /** What an unset field reads as, so the UI need not guess. */
+          placeholder: z.union([z.string(), z.number()]).nullable(),
+          options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+        })),
+      })),
+    }).strict(),
+  },
+  saveSlotSettings: {
+    input: z.object({ values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])) }).strict(),
+    output: z.object({ ok: z.boolean(), error: z.string().nullable() }).strict(),
+  },
+});
+
+const KIND_OPTIONS = CATALOG.map(kind => kind);
+const KIND_LABELS = Object.fromEntries(CATALOG.map(kind => [kind, KIND_META[kind].label]));
+const FREE_KIND_OPTION_VALUES = FREE_KIND_OPTIONS.map(kind => kind);
+// The off state reads as a choice, not as an empty field: an unlabelled option
+// would show the raw `none` beside every subscription name.
+const FREE_KIND_LABELS: Record<string, string> = {
+  ...KIND_LABELS,
+  [NO_KIND]: 'Not tracked',
+};
+
+/**
+ * The slot fields, described for the settings page's own layout.
+ *
+ * These used to be setting descriptors, so the host rendered them — but a
+ * descriptor is a flat scalar with no grouping, and twenty of them in one list
+ * is what made the page unreadable. The same metadata is served as data so the
+ * page can show one collapsible card per slot instead.
+ */
+function slotFieldSpecs(values: SlotValues) {
+  const fields: {
+    key: string; kind: 'boolean' | 'number' | 'select' | 'text';
+    label: string; description: string;
+    value: string | number | boolean | null;
+    placeholder: string | number | null;
+    options?: { value: string; label: string }[];
+  }[] = [];
+  for (let index = 0; index < SLOT_COUNT; index++) {
+    const n = index + 1;
+    const locked = FIXED_KIND[index];
+    const meta = KIND_META[locked ?? 'manual'];
+    const chosen = typeof values[`slot${n}Kind`] === 'string' ? values[`slot${n}Kind`] as string : NO_KIND;
+    const shown = KIND_META[(isFreeKind(chosen) ? chosen : 'manual') as keyof typeof KIND_META];
+    if (locked) {
+      fields.push({
+        key: `slot${n}Enabled`, kind: 'boolean',
+        label: `Track ${meta.label}`,
+        description: 'On by default: one of the two subscriptions this plugin was built for.',
+        value: typeof values[`slot${n}Enabled`] === 'boolean' ? values[`slot${n}Enabled`] as boolean : null,
+        placeholder: 'on',
+      });
+      fields.push({
+        key: `slot${n}Label`, kind: 'text',
+        label: 'Display name',
+        description: `Optional. Defaults to ${meta.label}.`,
+        value: typeof values[`slot${n}Label`] === 'string' && (values[`slot${n}Label`] as string).trim()
+          ? values[`slot${n}Label`] as string
+          : null,
+        placeholder: meta.label,
+      });
+    } else {
+      fields.push({
+        key: `slot${n}Kind`, kind: 'select',
+        label: 'Subscription',
+        description: 'Leave on “Not tracked” unless you want this slot filled.',
+        value: isFreeKind(chosen) || chosen === NO_KIND ? chosen : null,
+        placeholder: NO_KIND,
+        options: kindChoices(),
+      });
+    }
+    fields.push({
+      key: `slot${n}Allowance`, kind: 'number',
+      label: 'Allowance per period (USD)',
+      description: `Defaults to $${shown.allowanceUsd}; set your plan's real figure.`,
+      value: typeof values[`slot${n}Allowance`] === 'number' ? values[`slot${n}Allowance`] as number : null,
+      placeholder: shown.allowanceUsd,
+    });
+    fields.push({
+      key: `slot${n}RenewalDay`, kind: 'number',
+      label: 'Renewal day of the month',
+      description: `Defaults to ${shown.renewalDay}. Providers rarely publish their billing period; OpenCode publishes an exact reset and overrides this.`,
+      value: typeof values[`slot${n}RenewalDay`] === 'number' ? values[`slot${n}RenewalDay`] as number : null,
+      placeholder: shown.renewalDay,
+    });
+    if (!locked) {
+      fields.push({
+        key: `slot${n}ManualSpend`, kind: 'number',
+        label: 'Spend so far this period (USD)',
+        description: 'One number per period, for a plan that publishes no readable usage. The plugin dates it the day you change it.',
+        value: typeof values[`slot${n}ManualSpend`] === 'number' ? values[`slot${n}ManualSpend`] as number : null,
+        placeholder: 'not entered',
+      });
+    }
+  }
+  return fields;
+}
+
+/**
+ * Open the host database read-only.
+ *
+ * `better-sqlite3` is already loaded in the server process — bb uses it for this
+ * same file — so this adds no dependency. Read-only and short-lived: the caller
+ * closes the connection before the store returns.
+ */
+function openHostDatabase(path: string, options: { readonly: boolean }) {
+  // Resolved through require so the module graph never eagerly loads a native
+  // addon that only an upgrade path needs.
+  const req = createRequire(import.meta.url);
+  const Database = req('better-sqlite3') as new (p: string, o: { readonly: boolean }) => {
+    prepare(sql: string): { all(...args: unknown[]): unknown[] };
+    close(): void;
+  };
+  return new Database(path, options);
+}
+
+/**
+ * Asks BB's own Codex provider for the plan's usage.
+ *
+ * The plugin does not talk to OpenAI itself. `provider-codex` already holds the
+ * sign-in and already reads the plan's quota, so asking it is both the shortest
+ * path and the one that keeps the credential out of this plugin entirely. It is
+ * resolved here because the SDK is server-only, and handed to the collector as
+ * data so the collector stays pure enough to test with a fixture.
+ *
+ * `null` means no provider answered for that id — the provider is not enabled,
+ * or not signed in. The slot reports that as unavailable rather than as zero,
+ * because a plan with an unknown balance is not a plan with an empty one.
+ */
+async function codexUsage(bb: BbPluginApi): Promise<ProviderUsage | null> {
+  try {
+    const usage = await bb.sdk.system.usageLimits({ providerId: CODEX_PROVIDER });
+    const entry = (usage as Record<string, ProviderUsage>)[CODEX_PROVIDER];
+    return entry ?? null;
+  } catch {
+    // A provider that throws is a provider that could not answer. The row says
+    // so; it does not fall back to a number this plugin made up.
+    return null;
+  }
+}
+
+export default function plugin(bb: BbPluginApi) {
+  // Only credentials stay declarative. The host keeps them in its own 0600
+  // secret files, never returns them to the app, and `bb plugin config` keeps
+  // working for them. The slot fields need none of that, and the flat form the
+  // host renders for every descriptor is what made the page unreadable.
+  const credentialsHandle = bb.settings.define({
+    gatewayApiKey: {
+      type: 'string',
+      label: 'Vercel AI Gateway API key',
+      secret: true,
+      description: 'The `vck_...` key bb already calls the AI Gateway with. Read only: the plugin asks for the credit balance and daily spend.',
+    },
+    opencodeApiKey: {
+      type: 'string',
+      label: 'OpenCode API key',
+      secret: true,
+      description: 'The `oc_s_...` key bb already calls OpenCode with. Sent as a Bearer token to the usage endpoint.',
+    },
+  });
+  // Credentials are read through the descriptor handle; slot values come from
+  // the plugin's own store so the settings page can lay them out per slot.
+  const slots = createSlotStore({
+    kv: bb.storage.kv,
+    // An upgrade from the descriptor-based build leaves its choices in the
+    // host's table. `experimental_dataDir` exists for reading bb-managed files a
+    // plugin is migrating away from, which is exactly this and nothing else.
+    legacy: {
+      hostDbPath: bb.server.experimental_dataDir + '/bb.db',
+      pluginId: bb.pluginId,
+      open: openHostDatabase,
+    },
+  });
+
+  // OpenCode publishes only a live percentage, so its trend has to be sampled.
+  // The store lives in the plugin database rather than in memory because a
+  // reload is routine and an in-memory series would restart from one point.
+  const samples = createSampleStore(bb.storage.database() as never);
+  // Stamped once per observation, so a hand-entered figure carries the day it
+  // last changed instead of a second field the user has to keep in step.
+  const stamps = createStampStore(bb.storage.database() as never);
+  const collector = createCollector({ samples, stamps });
+  bb.onDispose(() => collector.dispose());
+
+  async function snapshot(refresh: boolean) {
+    const credentials = await credentialsHandle.get() as Record<string, unknown>;
+    const asKey = (name: string) =>
+      typeof credentials[name] === 'string' ? credentials[name] as string : '';
+    return collector.measure(
+      readSlots(await slots.read()),
+      {
+        gateway: asKey('gatewayApiKey'),
+        opencode: asKey('opencodeApiKey'),
+        codex: await codexUsage(bb),
+      },
+      refresh,
+    );
+  }
+
+  // One sample a day is the whole resolution the chart can use, but a daily
+  // cron at a fixed hour can miss a day entirely if the machine is asleep, and
+  // the missed day is the one that would have shown a spike. Hourly sampling
+  // costs one request and the store keeps the first reading of each day.
+  bb.background.schedule('opencode-sample', '17 * * * *', async () => {
+    await snapshot(false);
+  });
+
+  bb.rpc.register(rpcContract, {
+    getSnapshot: async ({ refresh }) => snapshot(refresh),
+    getSlotSettings: async () => {
+      const values = await slots.read();
+      const byIndex = new Map<number, ReturnType<typeof slotFieldSpecs>>();
+      for (const field of slotFieldSpecs(values)) {
+        const match = /^slot(\d+)/.exec(field.key);
+        const index = match ? Number(match[1]) - 1 : 0;
+        const list = byIndex.get(index) ?? [];
+        list.push(field);
+        byIndex.set(index, list);
+      }
+      return {
+        slots: Array.from({ length: SLOT_COUNT }, (_, index) => ({
+          index,
+          locked: FIXED_KIND[index] !== undefined,
+          fields: byIndex.get(index) ?? [],
+        })),
+      };
+    },
+    saveSlotSettings: async ({ values }) => {
+      try {
+        await slots.write(values as SlotValues);
+        // A fresh figure or a changed subscription must be measured again: the
+        // collector caches per credential, and the old answer belongs to the
+        // settings that produced it.
+        collector.invalidate();
+        return { ok: true, error: null };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  });
+}

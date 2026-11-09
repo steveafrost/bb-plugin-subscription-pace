@@ -1,0 +1,61 @@
+{
+  "name": "bb-plugin-subscription-pace",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "bb": ">=0.46",
+    "bbPluginSdk": ">=0.6.49"
+  },
+  "bb": {
+    "name": "Subscription Pace",
+    "description": "Tracks several AI subscription allowances against their billing periods on one chart, and forecasts whether they last to renewal.",
+    "branding": {
+      "icon": "./assets/pace.svg",
+      "experimental_icons": {
+        "pace": "./assets/pace.svg"
+      }
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx",
+    "skills": [
+      "skills"
+    ]
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.132",
+    "@testing-library/react": "^16.3.3",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "better-sqlite3": "^12.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cron-parser": "^5.10.4",
+    "hono": "^4.11.9",
+    "jsdom": "^30.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.7.0",
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.5"
+  },
+  "description": "Combined remaining allowance across AI subscriptions, forecast to each renewal.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "bb plugin build"
+  },
+  "keywords": [
+    "bb-plugin",
+    "subscriptions",
+    "usage",
+    "allowance",
+    "forecast"
+  ],
+  "license": "MIT"
+}
