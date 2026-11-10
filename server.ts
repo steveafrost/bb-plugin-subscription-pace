@@ -182,18 +182,34 @@ export function slotFieldSpecs(values: SlotValues) {
     fields.push({
       key: `slot${n}Allowance`, kind: 'number',
       label: 'Allowance per period (USD)',
+      // The unknown-allowance branch must state both states, because this figure
+      // is used conditionally. It used to promise an estimate unconditionally:
+      // "enter that model's monthly limit to see an estimated spend worked out
+      // from that percentage". That only holds when the percentage shown is a
+      // share of the allowance typed here. OpenCode's headline is now its weekly
+      // window, measured against a different cap, so entering 100 produced no
+      // estimate and the row read "no dollar limit set" — the description
+      // described a behaviour the collector no longer has in the common case.
+      // It is still used when the monthly window is the one driving the row
+      // (`percentOfAllowance`), which is the fallback when no weekly reading is
+      // available, so neither "always" nor "never" is true.
       description: known
         ? `Defaults to $${allowanceMeta.allowanceUsd}; set your plan's real figure.`
         : 'No default: this provider reports a percentage of a per-model limit, and does not say '
-          + "which model. Enter that model's monthly limit to see an estimated spend worked out "
-          + 'from that percentage; leave it blank to see only the share.',
+          + "which model. Enter that model's monthly limit to derive spend when the monthly window "
+          + 'drives this row. While the weekly window drives it, no dollar figure can be worked out: '
+          + 'that percentage is measured against a different cap.',
       value: typeof values[`slot${n}Allowance`] === 'number' ? values[`slot${n}Allowance`] as number : null,
       placeholder: known ? allowanceMeta.allowanceUsd : 'not set',
     });
     fields.push({
       key: `slot${n}RenewalDay`, kind: 'number',
       label: 'Renewal day of the month',
-      description: `Defaults to ${allowanceMeta.renewalDay}. Providers rarely publish their billing period; OpenCode publishes an exact reset and overrides this.`,
+      // Names both providers that publish a reset, and which one does not. The
+      // earlier wording credited only OpenCode, so a Codex slot whose date came
+      // from the provider read as though it had been taken from this field.
+      description: `Defaults to ${allowanceMeta.renewalDay}. Used only where the provider publishes no reset: `
+        + 'OpenCode and Codex report an exact one and override this; Vercel does not, so its day comes from here.',
       value: typeof values[`slot${n}RenewalDay`] === 'number' ? values[`slot${n}RenewalDay`] as number : null,
       placeholder: allowanceMeta.renewalDay,
     });
