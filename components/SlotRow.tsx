@@ -1,5 +1,6 @@
 import type { SlotSnapshot } from '../collector.js';
 import { paceCopy, percent, shareOf, shortDate, spendOf, usd } from '../pace.js';
+import { windowCap } from '../window-caps.js';
 
 /**
  * One subscription row.
@@ -64,22 +65,19 @@ function endsQuietly(slot: SlotSnapshot): boolean {
 }
 
 /**
- * The share of the monthly limit each sub-window is allowed.
+ * Sub-windows a provider publishes beside the period limit, with their caps.
  *
- * Published by OpenCode as "5-hour — 20% of the monthly limit; weekly — 50%;
- * monthly — 100%". A window not in this table is drawn against 100, because a
- * cap this file does not know is not one it should invent.
+ * The period's own window is skipped by matching `periodWindow`, not a hardcoded
+ * name. Filtering on `'monthly'` drew Codex's headline window a second time
+ * under its own bar, because Codex calls that window "Weekly limit".
  */
-const WINDOW_CAP: Record<string, number> = { rolling: 20, weekly: 50, monthly: 100 };
-
-/** Sub-windows a provider publishes beside the period limit, with their caps. */
 function windowsWithCaps(slot: SlotSnapshot): { key: string; percent: number; cap: number }[] {
   return slot.windows
-    .filter(window => window.key !== 'monthly')
+    .filter(window => window.key !== slot.periodWindow)
     .map(window => ({
       key: window.key,
       percent: window.percent,
-      cap: WINDOW_CAP[window.key] ?? 100,
+      cap: windowCap(slot.source, window.key),
     }));
 }
 
@@ -143,7 +141,12 @@ export function SlotRow({ slot }: { slot: SlotSnapshot }) {
                   spent-out plan. */}
               {slot.spentUsd !== null
                 ? `${spendOf(slot.spentUsd, slot.allowanceUsd)} spent`
-                : slot.allowanceUsd > 0 && slot.usedPercent !== null
+                // Only a figure the user typed may be multiplied out into
+                // dollars. A plan default is a placeholder this plugin chose —
+                // Codex's nominal $20 stands in for a ChatGPT price it cannot
+                // read — so deriving from it would print arithmetic on an
+                // invented number in the same notation as a real one.
+                : slot.allowanceEntered && slot.usedPercent !== null
                   ? `${shareOf(slot.usedPercent, slot.allowanceUsd)} · derived from the ${percent(slot.usedPercent)} above`
                   : 'no dollar limit set'}
               {slot.remainingUsd === null ? null : ` · ${usd(slot.remainingUsd)} left`}

@@ -36,6 +36,8 @@ export type SlotSnapshot = {
   source: Slot['source'];
   status: SlotStatus;
   allowanceUsd: number;
+  /** True when the user typed the allowance, so dollars may be derived from it. */
+  allowanceEntered: boolean;
   /** Percent of the allowance consumed. The one unit every source can produce. */
   usedPercent: number | null;
   /** Dollars, only where the provider reports dollars. */
@@ -56,6 +58,8 @@ export type SlotSnapshot = {
   daily: PercentPoint[];
   /** Other limits the provider publishes beside the period one. */
   windows: { key: string; percent: number; resetsAt: string | null }[];
+  /** The `windows` key whose percentage became `usedPercent`, when one did. */
+  periodWindow: string | null;
   /**
    * The last day the source recorded any spend.
    *
@@ -333,6 +337,7 @@ export function createCollector(options: {
       source: slot.source,
       status,
       allowanceUsd: slot.allowanceUsd,
+      allowanceEntered: slot.allowanceEntered,
       usedPercent: null,
       spentUsd: null,
       remainingUsd: null,
@@ -345,6 +350,7 @@ export function createCollector(options: {
       resetsAt: null,
       daily: [],
       windows: [],
+      periodWindow: null,
       lastSpendDay: null,
       staleSince: null,
       carriedFrom: null,
@@ -476,6 +482,7 @@ export function createCollector(options: {
       source: slot.source,
       status: 'ok',
       allowanceUsd: slot.allowanceUsd,
+      allowanceEntered: slot.allowanceEntered,
       usedPercent: measure.usedPercent,
       spentUsd,
       // Null rather than zero when no spend was reported: a plan that publishes
@@ -490,6 +497,7 @@ export function createCollector(options: {
       resetsAt: measure.resetsAt,
       daily,
       windows: measure.windows,
+      periodWindow: measure.periodWindow ?? null,
       lastSpendDay: lastActive,
       // Live sources: the newest record the provider holds predates this period,
       // so a zero here may be a source that has not caught up rather than a
@@ -507,19 +515,19 @@ export function createCollector(options: {
   }
 
   /**
-   * The combined headline is the share of the total dollar allowance consumed.
+   * What the panel can say about all the slots at once.
    *
-   * Percent is the only unit the live subscriptions share, so a sum of dollars
-   * would silently drop OpenCode. The combined percentage is therefore weighted
-   * by each slot's allowance, which is both the honest way to combine unlike
-   * plans and the same number a dollar total would give. Dollars are still
-   * totalled separately, but only when every readable slot reports them.
+   * Three counts and nothing else. There is deliberately no combined percentage:
+   * it was removed rather than fixed, because the arithmetic was sound but its
+   * inputs were not. It was weighted by each slot's allowance, and OpenCode's
+   * allowance is a per-model monthly limit the endpoint never names, so any
+   * weight was a guess — the same 27% is $27 on a $100 model and $4.05 on a $15
+   * one. A number whose error cannot be bounded must not be the largest thing
+   * on screen.
    *
-   * A slot that reports only a percentage is weighed by its allowance like any
-   * other, because a percentage is unit-free: 28% of a plan and 24% of another
-   * combine without either being converted. What such a slot cannot do is
-   * contribute dollars, so a dollar total is only offered when every readable
-   * slot reported one.
+   * There is no "worst subscription" either. Ranking by used percent is not a
+   * ranking of trouble: a plan at 95% on day 30 is not worse than one at 60% on
+   * day 3, and each row already carries its own verdict.
    */
   function overall(slots: SlotSnapshot[]): Overall {
     // A disabled slot is the only one that was never asked for; every other

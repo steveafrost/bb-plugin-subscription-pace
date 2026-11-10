@@ -120,7 +120,11 @@ function PacePage() {
               ? 'Nothing readable yet.'
               : overall.attention === 0
                 ? `${overall.readable} of ${overall.configured} tracked subscriptions readable, none in trouble.`
-                : `${overall.attention} of ${overall.readable} readable subscriptions ${overall.attention === 1 ? 'needs' : 'need'} attention.`}
+                // Two different counts govern two different words: the noun
+                // agrees with the number readable, the verb with the number in
+                // trouble. Pluralising only the verb printed "1 of 1 readable
+                // subscriptions needs attention".
+                : `${overall.attention} of ${overall.readable} readable ${overall.readable === 1 ? 'subscription' : 'subscriptions'} ${overall.attention === 1 ? 'needs' : 'need'} attention.`}
           </p>
         </div>
         <button

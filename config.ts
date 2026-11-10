@@ -112,9 +112,10 @@ export const KIND_META: Record<SubscriptionKind, KindMeta> = {
     // duplicated here.
     source: 'codex-usage',
     // The provider reports a percentage and no price, so there is no spend to
-    // divide. This figure exists only to weight the slot against the dollar
-    // subscriptions in the headline; it is a nominal plan value, never a
-    // measurement, and the row never prints it as money.
+    // divide. This figure is a nominal plan value, never a measurement: the row
+    // draws the percentage against it but never turns it into dollars, because
+    // a figure the plugin chose is not one it may multiply out and present as a
+    // spend. `allowanceEntered` is what tells the row the difference.
     allowanceUsd: 20,
     // A ChatGPT plan renews monthly, and the provider publishes the exact
     // reset instant, which overrides this whenever it is present.
@@ -210,10 +211,24 @@ export type Slot = {
   /**
    * The allowance in dollars, or for a plan that publishes only a percentage,
    * the figure that percentage is taken against. A slot that reports a bare
-   * percent carries a nominal allowance so its weight in the headline is not
-   * zero; the number itself is never displayed as money it measured.
+   * percent carries a nominal allowance so the row has a scale to draw on; the
+   * number itself is never displayed as money, which `allowanceEntered` below
+   * is what enforces.
    */
   allowanceUsd: number;
+  /**
+   * True when the allowance above came from the user's own settings rather
+   * than from `KIND_META`.
+   *
+   * The row only turns a percentage into dollars when this is true. A plan
+   * default is a figure the plugin picked — a placeholder for a plan whose
+   * price it cannot read — so multiplying by it would print arithmetic on an
+   * invented number in the notation reserved for a figure the user supplied.
+   * Codex is exactly that case: it reports a bare percentage and carries a
+   * nominal $20 default, so `≈ $5.60 of $20.00` would be a plan price this
+   * plugin guessed, presented as a spend.
+   */
+  allowanceEntered: boolean;
   renewalDay: number;
   source: Source;
   /** Spend the user typed for this period. Dated by the stamp store. */
@@ -267,6 +282,10 @@ export function readSlot(values: Record<string, unknown>, index: number): Slot {
         // user never picked.
         ? `Slot ${index + 1}`
         : meta.label,
+    // Whether the user typed this figure is a separate fact from the figure
+    // itself, and the row needs it: a default is a placeholder the plugin
+    // chose, so it may be drawn against but never multiplied out into dollars.
+    allowanceEntered: typeof allowance === 'number' && Number.isFinite(allowance) && allowance > 0,
     allowanceUsd: typeof allowance === 'number' && Number.isFinite(allowance) && allowance > 0
       ? allowance
       // An untracked slot takes the untracked kind's zero rather than another

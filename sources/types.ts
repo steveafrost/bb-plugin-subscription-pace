@@ -17,15 +17,6 @@ export type Measure = {
   usedPercent: number;
   /** Dollars, when the provider reports dollars. Null when it reports only a percent. */
   spentUsd: number | null;
-  /**
-   * Tokens consumed, for a slot whose allowance is denominated in tokens.
-   *
-   * A metered plan like ChatGPT / Codex is not billed per token, so no dollar
-   * figure exists to report and `spentUsd` stays null. The count lives here
-   * instead of being squeezed into `spentUsd`, so the dollar headline can leave
-   * the slot out rather than adding a token count to a sum of dollars.
-   */
-  spentTokens?: number | null;
   /** Per-day dollars, when the provider can produce a series. */
   daily: DayTotal[];
   /**
@@ -36,8 +27,24 @@ export type Measure = {
   resetsAt: string | null;
   /** Newest record the source holds, for telling a quiet period from a dead one. */
   lastActivity: string | null;
-  /** Extra limits a provider publishes beside the period one (rolling, weekly). */
+  /**
+   * Extra limits a provider publishes beside the period one (rolling, weekly).
+   *
+   * `key` is the provider's own window name and is not a closed set: OpenCode
+   * sends `rolling`/`weekly`/`monthly`, while Codex sends prose like
+   * `Weekly limit`. Nothing may key off a literal here.
+   */
   windows: { key: string; percent: number; resetsAt: string | null }[];
+  /**
+   * The `key` of the window whose percentage became `usedPercent`.
+   *
+   * The row draws the other windows as sub-limits beside the headline, and it
+   * must not draw the headline's own window a second time. Matching on a
+   * hardcoded `'monthly'` did exactly that for Codex, whose headline window is
+   * called `Weekly limit`: the same reading appeared twice, once as the row's
+   * main number and again as a bar drawn against a cap it did not have.
+   */
+  periodWindow?: string | null;
   /**
    * Our own observations of a live percentage, when the provider publishes no
    * history at all.
@@ -64,7 +71,7 @@ export type Measure = {
 };
 
 export type SourceResult =
-  | { ok: true; measure: Measure; spentTokens?: number }
+  | { ok: true; measure: Measure }
   /**
    * `unauthenticated` is reserved for a credential the provider actively
    * rejected. Every other failure — 5xx, a timeout, a body that does not parse,

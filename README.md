@@ -80,7 +80,8 @@ the plan's own number.
 That has one consequence worth stating: **the number is plan-authoritative, not derived.** No
 allowance is guessed, and no token count is converted into a percentage. The slot's allowance
 figure is nominal and exists only so the slot can be described in the same unit as the others;
-the row never prints it as money, because none was measured.
+the row never prints it as money, because none was measured. It shows "no dollar limit set"
+instead.
 
 **Setup, and it is not zero-config.** The slot reads BB's Codex provider, so that provider has to
 be enabled and signed in:
@@ -155,7 +156,7 @@ subscription's guess — confirm them before trusting the line.
 ## Development
 
 ```sh
-npm test          # 117 tests
+npm test          # 155 tests
 npx tsc --noEmit
 npm run build
 bb plugin install . --yes

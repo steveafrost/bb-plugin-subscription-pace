@@ -24,6 +24,8 @@ const slotSchema = z.object({
   source: z.enum(['vercel-gateway', 'opencode-usage', 'codex-usage', 'manual']),
   status: z.enum(['ok', 'disabled', 'unauthenticated', 'unavailable', 'unentered']),
   allowanceUsd: z.number().finite().nonnegative(),
+  allowanceEntered: z.boolean(),
+  periodWindow: z.string().nullable(),
   usedPercent: z.number().finite().nullable(),
   spentUsd: z.number().finite().nonnegative().nullable(),
   remainingUsd: z.number().finite().nonnegative().nullable(),
@@ -135,8 +137,8 @@ export function slotFieldSpecs(values: SlotValues) {
     // A locked slot is not "manual": its allowance default is the one the
     // collector will actually use. Reading it from `shown` advertised $20 for
     // both locked slots while the collector used $80 and $10 — a user trusting
-    // the field would have re-entered the wrong figure and changed the
-    // allowance-weighted headline without being told.
+    // the field would have re-entered a figure the collector never used, and
+    // nothing would have said so.
     const allowanceMeta = locked ? meta : shown;
     if (locked) {
       fields.push({

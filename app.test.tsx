@@ -24,6 +24,8 @@ const slot = (over: Partial<SlotSnapshot> & { index: number }): SlotSnapshot => 
   source: 'vercel-gateway',
   status: 'ok',
   allowanceUsd: 80,
+  allowanceEntered: false,
+  periodWindow: null,
   usedPercent: 97,
   spentUsd: 77.64,
   remainingUsd: 2.36,
@@ -170,10 +172,112 @@ describe('Subscription Pace panel', () => {
     // a dollar figure. It is arithmetic on a number the provider never sent, so
     // the row marks it `≈` and says where it came from — printed bare it would
     // look like Vercel's measured spend sitting two rows above it.
-    const known = slot({ ...opencode, allowanceUsd: 100 });
+    const known = slot({ ...opencode, allowanceUsd: 100, allowanceEntered: true });
     const view = await renderPanel(snapshot([slot({ index: 0 }), known]));
     expect(await view.findByText(/≈ \$17\.00 of \$100\.00/)).toBeTruthy();
     expect(view.getByText(/derived from the 17%/)).toBeTruthy();
+  });
+
+  it('does not draw the headline window a second time as a sub-limit', async () => {
+    // Codex names its windows in prose, so the old `key !== 'monthly'` filter
+    // never matched and the window behind the row's own number was drawn again
+    // underneath it — the same reading twice, the second one against a cap it
+    // does not have.
+    const codex = slot({
+      index: 2,
+      kind: 'codex',
+      label: 'ChatGPT / Codex',
+      source: 'codex-usage',
+      allowanceUsd: 20,
+      allowanceEntered: false,
+      usedPercent: 28,
+      spentUsd: null,
+      remainingUsd: null,
+      daily: [],
+      periodWindow: 'Weekly limit',
+      windows: [
+        { key: 'Weekly limit', percent: 28, resetsAt: '2026-11-20T00:00:00.000Z' },
+        { key: '5h limit', percent: 40, resetsAt: '2026-11-09T18:00:00.000Z' },
+      ],
+    });
+    const view = await renderPanel(snapshot([slot({ index: 0 }), codex]));
+    await view.findByText('Subscription Pace');
+    // The five-hour window still shows, drawn against its own 100. The chart's
+    // caption names it too, which is why this counts rather than gets.
+    expect(view.getAllByText(/40 of 100/).length).toBeGreaterThan(0);
+    // The headline window is the row's own number, so it is drawn once — as a
+    // headline, never as a bar beneath itself.
+    expect(view.queryByText(/28 of 100/)).toBeNull();
+  });
+
+  it('derives from the percentage it prints, so the sentence recomputes', async () => {
+    // A raw 29.7% beside a headline rounded to 30% derived "$29.70", which does
+    // not add up: 30% of $100 is $30. The reader is told the figure came from
+    // the number above it, so that has to be true of the arithmetic too.
+    const raw = slot({
+      index: 1,
+      kind: 'opencode-go',
+      label: 'OpenCode Go',
+      source: 'opencode-usage',
+      allowanceUsd: 100,
+      allowanceEntered: true,
+      usedPercent: 29.7,
+      spentUsd: null,
+      remainingUsd: null,
+      daily: [],
+    });
+    const view = await renderPanel(snapshot([slot({ index: 0 }), raw]));
+    await view.findByText('Subscription Pace');
+    expect(view.getByText(/derived from the 30%/)).toBeTruthy();
+    expect(view.getByText(/≈ \$30\.00 of \$100\.00/)).toBeTruthy();
+    expect(view.queryByText(/≈ \$29\.70/)).toBeNull();
+  });
+
+  it('clamps a derived spend at the allowance rather than printing more than it', async () => {
+    // An over-quota reading is real and the headline already says so in words.
+    // "≈ $150.00 of $100.00" beside "$0.00 left" reads as two contradictory
+    // figures rather than as one plan that is over.
+    const over = slot({
+      index: 1,
+      kind: 'opencode-go',
+      label: 'OpenCode Go',
+      source: 'opencode-usage',
+      allowanceUsd: 100,
+      allowanceEntered: true,
+      usedPercent: 150,
+      spentUsd: null,
+      remainingUsd: null,
+      daily: [],
+    });
+    const view = await renderPanel(snapshot([slot({ index: 0 }), over]));
+    await view.findByText('Subscription Pace');
+    expect(view.queryByText(/≈ \$150\.00/)).toBeNull();
+    expect(view.getByText(/≈ \$100\.00 of \$100\.00/)).toBeTruthy();
+  });
+
+  it('never derives dollars from an allowance the plugin chose itself', async () => {
+    // Codex reports a bare percentage and carries a nominal $20 default so it
+    // can be drawn on the same axis. Deriving from it printed "≈ $5.60 of
+    // $20.00 · derived from the 28% above" — arithmetic on a ChatGPT plan price
+    // this plugin guessed, in the same notation as a figure the user typed.
+    // Four places in the code and docs promise that never happens.
+    const codex = slot({
+      index: 2,
+      kind: 'codex',
+      label: 'ChatGPT / Codex',
+      source: 'codex-usage',
+      allowanceUsd: 20,
+      allowanceEntered: false,
+      usedPercent: 28,
+      spentUsd: null,
+      remainingUsd: null,
+      daily: [],
+    });
+    const view = await renderPanel(snapshot([slot({ index: 0 }), codex]));
+    await view.findByText('Subscription Pace');
+    expect(view.queryByText(/≈ \$5\.60/)).toBeNull();
+    expect(view.queryByText(/of \$20\.00/)).toBeNull();
+    expect(view.getByText(/no dollar limit set/)).toBeTruthy();
   });
 
   it('renders the live reset date OpenCode publishes', async () => {
@@ -314,7 +418,10 @@ describe('Subscription Pace panel', () => {
     // The 3xl count that stood here is gone. The header still carries the
     // count, and the row still carries its own 120%, so nothing was lost.
     expect(view.queryByText('In trouble')).toBeNull();
-    expect(view.getByText(/1 of 1 readable subscriptions needs attention/)).toBeTruthy();
+    // "subscription", singular: the noun agrees with the number readable, the
+    // verb with the number in trouble. Pluralising only the verb printed
+    // "1 of 1 readable subscriptions needs attention".
+    expect(view.getByText(/1 of 1 readable subscription needs attention/)).toBeTruthy();
     expect(view.getAllByText('120%').length).toBeGreaterThan(0);
   });
 

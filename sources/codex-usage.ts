@@ -110,6 +110,9 @@ export function readCodexUsage(
     ok: true,
     measure: {
       usedPercent: Math.max(0, longest.usedPercent),
+      // Named, not assumed: the row skips this window when drawing sub-limits,
+      // and Codex calls it "Weekly limit" rather than "monthly".
+      periodWindow: longest.label,
       // A ChatGPT plan is not billed per token, so there is no dollar figure to
       // report even when the provider sends a `cost` block for another window.
       spentUsd: null,

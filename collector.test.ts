@@ -185,6 +185,26 @@ describe('Vercel Token Pass', () => {
 });
 
 describe('OpenCode Go', () => {
+  it('rejects a negative percentage instead of rendering it as spend', async () => {
+    // The endpoint cannot mean "-50% used". Taken at face value it renders
+    // "-50%" beside an empty bar with no warning, and the collector would
+    // project a hit day further out than the real one.
+    const snapshot = await collector(router({
+      usage: () => json({
+        usage: {
+          rolling: { status: 'ok', percent: 9, resetsAt: '2026-11-09T18:00:11Z' },
+          weekly: { status: 'ok', percent: 7, resetsAt: '2026-11-16T00:00:00Z' },
+          monthly: { status: 'ok', percent: -50, resetsAt: '2026-12-06T14:22:07Z' },
+        },
+      }),
+    })).measure(readSlots(slotValues()), keys);
+    const opencode = snapshot.slots[1]!;
+    // The monthly window is unusable, so the slot reports no reading rather
+    // than a negative one.
+    expect(opencode.usedPercent).not.toBe(-50);
+    expect(opencode.status).not.toBe('ok');
+  });
+
   it('uses the monthly percentage and the provider reset date', async () => {
     const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
     const opencode = snapshot.slots[1]!;
@@ -344,13 +364,24 @@ describe('combined view', () => {
   });
 
   it('counts a slot that is on pace to run out even when it has not yet', async () => {
-    // This is the case a combined average could not express at all: 60% used is
-    // unremarkable until you know it happened in three days.
-    const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
+    // This is the case a combined average could not express at all: 62.5% used
+    // is unremarkable until you know it happened in the last week. Neither slot
+    // is over its limit, so the count can only come from the pace branch — and
+    // it is the only thing that distinguishes this snapshot from a quiet one.
+    const snapshot = await collector(router({
+      credits: () => credits(30, 50),
+      report: () => report([
+        { day: '2026-11-08', usd: 45 },
+        { day: '2026-11-09', usd: 5 },
+      ]),
+    })).measure(readSlots(slotValues()), keys);
+    const vercel = snapshot.slots[0]!;
+    expect(vercel.usedPercent).toBeCloseTo(62.5, 5);
+    expect(vercel.hitDay).not.toBeNull();
     const opencode = snapshot.slots.find(slot => slot.kind === 'opencode-go')!;
     expect(opencode.usedPercent).toBe(17);
     expect(opencode.hitDay).toBeNull();
-    // Only Vercel qualifies, and it qualifies by being over rather than by pace.
+    // Nothing is at or over 100%, so a count of 1 proves the pace half ran.
     expect(snapshot.overall.attention).toBe(1);
   });
   it('reads the plan percentage BB publishes, with no denominator to invent', async () => {

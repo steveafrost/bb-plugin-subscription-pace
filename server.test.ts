@@ -16,6 +16,8 @@ const slot: SlotSnapshot = {
   source: 'vercel-gateway',
   status: 'ok',
   allowanceUsd: 80,
+  allowanceEntered: false,
+  periodWindow: null,
   usedPercent: 97,
   spentUsd: 77.64,
   remainingUsd: 2.36,

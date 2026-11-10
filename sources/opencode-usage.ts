@@ -42,7 +42,12 @@ const asWindow = (value: unknown): { percent: number; resetsAt: string | null; s
   if (!value || typeof value !== 'object') return null;
   const window = value as Window;
   const percent = Number(window.percent);
-  if (!Number.isFinite(percent)) return null;
+  // A negative reading is not a small amount used; it is a number the endpoint
+  // cannot mean, and taken at face value it renders "-50%" beside an empty bar
+  // with no warning, and projects a hit day further out than the real one.
+  // `opencode-history.ts` already refuses to persist one, so refusing it here
+  // keeps the live reading and the stored series on the same rule.
+  if (!Number.isFinite(percent) || percent < 0) return null;
   return {
     percent,
     resetsAt: typeof window.resetsAt === 'string' && window.resetsAt ? window.resetsAt : null,
@@ -100,6 +105,7 @@ export async function readOpencodeUsage(
 
     const measure: Measure = {
       usedPercent: monthly.percent,
+      periodWindow: 'monthly',
       // The endpoint reports a share of the plan, never a dollar figure.
       spentUsd: null,
       daily: [],

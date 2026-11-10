@@ -30,9 +30,12 @@ sound but its inputs were not: the figure was weighted by each slot's allowance,
 allowance is a *per-model* monthly limit ($15–$100 depending on model) that the endpoint never
 names. The same 27% is $27 on a $100 model and $4.05 on a $15 one, so any weight is a guess.
 
-In its place is a **count of subscriptions in trouble** — over the limit, or on pace to be before
-the next reset. The second half is what a combined average could never say: 60% used is fine
-until you know it took three days.
+What replaces it is a **count in the panel's header** — how many readable subscriptions are over
+the limit, or on pace to be before the next reset. The second half is what a combined average
+could never say: 60% used is fine until you know it took three days.
+
+Nor is there a "closest to its limit". A plan at 95% on day 30 is not worse than one at 60% on
+day 3, so ranking by percent would mislead. Each row carries its own verdict.
 
 ## Where the numbers come from
 

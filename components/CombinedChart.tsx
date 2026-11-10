@@ -4,6 +4,7 @@ import {
   GEOMETRY, PERCENT_MAX, axisDate, percentLine, scales, shortDate,
 } from '../pace.js';
 import { seriesColor } from '../lib/series.js';
+import { windowCap } from '../window-caps.js';
 
 /**
  * One line per subscription, in the one unit they share.
@@ -166,12 +167,10 @@ export function CombinedChart({ slots }: { slots: SlotSnapshot[] }) {
  * 8%" beside a 25% monthly line reads as an independent 8% of the month, when
  * the rolling window is a 20% slice of it — so 8 of 20 is nearly full.
  */
-const WINDOW_CAP: Record<string, number> = { rolling: 20, weekly: 50, monthly: 100 };
-
 function viz(slots: SlotSnapshot[]): string {
   const extras = slots.flatMap(slot => slot.windows
-    .filter(window => window.key !== 'monthly')
-    .map(window => `${slot.label} ${window.key} ${Math.round(window.percent)} of ${WINDOW_CAP[window.key] ?? 100}`));
+    .filter(window => window.key !== slot.periodWindow)
+    .map(window => `${slot.label} ${window.key} ${Math.round(window.percent)} of ${windowCap(slot.source, window.key)}`));
   return extras.length > 0 ? ` Also now: ${extras.join(' · ')}.` : '';
 }
 

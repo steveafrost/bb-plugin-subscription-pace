@@ -162,8 +162,21 @@ export const spendOf = (spent: number, allowance: number): string =>
  * Vercel's measured spend. A reader who takes `$30.00` for a reported number
  * would be trusting arithmetic the plugin guessed the denominator of.
  */
-export const shareOf = (percentUsed: number, allowance: number): string =>
-  `≈ ${usd((percentUsed / 100) * allowance)} of ${usd(allowance)}`;
+export const shareOf = (percentUsed: number, allowance: number): string => {
+  // The percentage is rounded to the same whole number the row prints before it
+  // is multiplied, so the sentence recomputes. Deriving from the raw 29.7%
+  // while the headline said 30% produced "≈ $29.70 of $100.00 · derived from
+  // the 30% above", which does not add up: 30% of $100 is $30.
+  //
+  // The dollar side is then clamped to the allowance, never the percentage: an
+  // over-quota reading is real and the row above already says so in words, but
+  // "≈ $150.00 of $100.00" beside "$0.00 left" reads as two contradictory
+  // figures rather than as one plan that is over. A negative reading cannot
+  // reach here — the sources reject one — but the clamp costs nothing and
+  // stops a future source from printing "-$50.00 of $100.00".
+  const spent = Math.min(1, Math.max(0, Math.round(percentUsed) / 100)) * allowance;
+  return `≈ ${usd(spent)} of ${usd(allowance)}`;
+};
 
 
 /**
