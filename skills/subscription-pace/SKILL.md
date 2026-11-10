@@ -86,9 +86,17 @@ renewal day is configured rather than discovered.
   `chatgpt.com/backend-api/wham/usage` — the endpoint the Codex client itself uses. The response
   is `used_percent` per window plus each window's `reset_at`, so the percentage is
   plan-authoritative and no allowance has to be guessed.
-  **Setup is required**: `bb plugin enable provider-codex` and a Codex sign-in. Without both,
-  `usageLimits` returns no entry for the id and the slot reads `Unavailable` — never 0%, because
-  an unknown balance is not an empty one.
+  **Setup is required**: `bb plugin enable provider-codex` and a Codex sign-in, both done on BB's
+  **Settings → Providers** page. Without them `usageLimits` returns no entry for the id and the
+  slot reads `Unavailable` — never 0%, because an unknown balance is not an empty one.
+  To say *which* step is missing the plugin also reads `bb.sdk.system.providerStates()`, asked only
+  when the quota did not answer, and puts the answer in `SlotSnapshot.hint`: CLI not installed,
+  signed out, sign-in expired, CLI too old, or an error message from the provider. Every branch
+  names Settings → Providers. The plugin never installs the CLI or drives a login — the SDK exposes
+  neither (`providerStates` is read-only, and the sign-in flag is literally
+  `internal_DO_NOT_USE_guidedSignIn`), and BB owns provider setup.
+  Note that `providerStates()` omits a provider that has not registered at all, so an absent entry
+  means the setup is incomplete without saying which part; that case names both.
   The response carries **no spend and no history**: windows only, so the chart is a single marker.
   A plan publishes a five-hour window and a weekly one; the slot reports the window whose reset
   is furthest out (the one that runs out at renewal) and lists the rest beside it.

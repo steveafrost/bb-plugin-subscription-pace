@@ -72,9 +72,13 @@ be enabled and signed in:
 bb plugin enable provider-codex
 ```
 
-Then sign in through BB's provider settings (or `codex login`, if you have the CLI). Without it the
-slot reads "Could not be read" rather than 0% — a plan with an unknown balance is not a plan with
-an empty one.
+Then sign in through BB's **Settings → Providers** page, which installs the Codex CLI and starts the
+sign-in for you. Without that setup the slot reads "Could not be read" rather than 0% — a plan with
+an unknown balance is not a plan with an empty one — and the row names which step is missing:
+CLI not installed, signed out, sign-in expired, or a CLI too old for BB to drive.
+
+The plugin never installs the CLI or drives a login itself. BB owns provider setup, and a spending
+widget should not be managing global packages behind it.
 
 Two things this source cannot do:
 

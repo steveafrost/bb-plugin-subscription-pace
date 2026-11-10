@@ -9,7 +9,9 @@ import type { Slot } from './config.js';
 import { readVercelSpend } from './sources/vercel-gateway.js';
 import { readOpencodeUsage } from './sources/opencode-usage.js';
 import { readManualSpend } from './sources/manual.js';
-import { readCodexUsage, CODEX_PROVIDER, type ProviderUsage } from './sources/codex-usage.js';
+import {
+  readCodexUsage, CODEX_PROVIDER, type ProviderState, type ProviderUsage,
+} from './sources/codex-usage.js';
 import type { Measure } from './sources/types.js';
 import {
   createSampleStore,
@@ -80,6 +82,14 @@ export type SlotSnapshot = {
    * than the user's own statement, so the row can ask instead of assert.
    */
   carriedUnverified: boolean;
+  /**
+   * What the user can do about a failure, when the source knows.
+   *
+   * A status says a slot is unreadable; it cannot say whether that means "install
+   * the CLI" or "your sign-in expired", and those are different clicks. The
+   * source reports the difference so the row can name the fix.
+   */
+  hint: string | null;
 };
 
 /** Totals across the slots that could actually be read. */
@@ -270,6 +280,8 @@ export type CollectorKeys = {
   gateway: string;
   opencode: string;
   codex: ProviderUsage | null;
+  /** What BB knows about the Codex provider itself, for explaining a failure. */
+  codexState?: ProviderState | null;
 };
 
 export function createCollector(options: {
@@ -308,7 +320,7 @@ export function createCollector(options: {
   });
 
   /** A non-measurable slot still reports its calendar so the row can render. */
-  function blank(slot: Slot, status: SlotStatus): SlotSnapshot {
+  function blank(slot: Slot, status: SlotStatus, hint: string | null = null): SlotSnapshot {
     const period = periodAt(now(), slot.renewalDay);
     return {
       index: slot.index,
@@ -333,6 +345,7 @@ export function createCollector(options: {
       staleSince: null,
       carriedFrom: null,
       carriedUnverified: false,
+      hint,
     };
   }
 
@@ -365,7 +378,7 @@ export function createCollector(options: {
       : slot.source === 'opencode-usage'
         ? await readOpencodeUsage({ key: keys.opencode }, options.fetch ?? fetch, controller.signal)
         : slot.source === 'codex-usage'
-          ? readCodexUsage(keys.codex ?? undefined, today)
+          ? readCodexUsage(keys.codex ?? undefined, today, keys.codexState ?? null)
           : readManualSpend({
           spendUsd: slot.manualSpendUsd,
           // The figure's date is not a setting any more: it is when the stored
@@ -383,7 +396,7 @@ export function createCollector(options: {
               : { period: carriedFrom, unverified: stamp?.unverified ?? false },
           });
 
-    if (!result.ok) return blank(slot, result.reason);
+    if (!result.ok) return blank(slot, result.reason, result.hint ?? null);
     const measure: Measure = result.measure;
     const window = periodFrom(now(), slot, measure.resetsAt);
 
@@ -484,6 +497,8 @@ export function createCollector(options: {
       // Manual sources: the figure is last period's number, untouched.
       carriedFrom: measure.carriedFrom ?? null,
       carriedUnverified: measure.carriedUnverified ?? false,
+      // A slot that measured successfully has nothing to explain.
+      hint: null,
     };
   }
 

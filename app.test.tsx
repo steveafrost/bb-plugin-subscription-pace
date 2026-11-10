@@ -43,6 +43,7 @@ const slot = (over: Partial<SlotSnapshot> & { index: number }): SlotSnapshot => 
   staleSince: null,
   carriedFrom: null,
   carriedUnverified: false,
+  hint: null,
   ...over,
 });
 
@@ -224,6 +225,7 @@ describe('Subscription Pace panel', () => {
           source: 'manual',
           carriedFrom: '2026-10-01',
           carriedUnverified: true,
+          hint: null,
         }),
       ]),
     );

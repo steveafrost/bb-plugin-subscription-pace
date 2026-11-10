@@ -71,4 +71,16 @@ export type SourceResult =
    * and marked with `Measure.carriedFrom` instead: refusing to plot it would
    * leave the row blank for a subscription that costs the same every month.
    */
-  | { ok: false; reason: 'unauthenticated' | 'unavailable' | 'unentered' };
+  | {
+    ok: false;
+    reason: 'unauthenticated' | 'unavailable' | 'unentered';
+    /**
+     * What the user can do about it, when the source knows.
+     *
+     * A reason alone says what is wrong but not where to fix it. A source that
+     * can see the difference between "the CLI is missing" and "the sign-in
+     * expired" reports it here, so the row points at the one screen that
+     * resolves it instead of a generic retry suggestion.
+     */
+    hint?: string;
+  };

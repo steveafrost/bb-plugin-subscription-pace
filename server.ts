@@ -2,13 +2,18 @@ import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { createRequire } from 'node:module';
 import { z } from 'zod';
 import { createCollector } from './collector.js';
-import { CODEX_PROVIDER, type ProviderUsage } from './sources/codex-usage.js';
+import {
+  CODEX_PROVIDER, type ProviderState, type ProviderUsage,
+} from './sources/codex-usage.js';
 import { createSampleStore } from './sources/opencode-history.js';
 import { createStampStore } from './sources/manual-stamp.js';
 import { createSlotStore, kindChoices, type SlotValues } from './slots-store.js';
 import {
   CATALOG, FIXED_KIND, FREE_KIND_OPTIONS, KIND_META, NO_KIND, SLOT_COUNT, isFreeKind, readSlots,
 } from './config.js';
+
+/** The subset of `providerStates()` this plugin reads, named so it stays checkable. */
+type ProviderStateEntry = ProviderState & { providerId: string };
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -39,6 +44,9 @@ const slotSchema = z.object({
   staleSince: daySchema.nullable(),
   carriedFrom: daySchema.nullable(),
   carriedUnverified: z.boolean(),
+  // Declared or the RPC strips it: a hint the collector produces but the schema
+  // omits would vanish between server and UI with no error anywhere.
+  hint: z.string().nullable(),
 });
 
 const snapshotSchema = z.object({
@@ -110,7 +118,8 @@ const FREE_KIND_LABELS: Record<string, string> = {
  * is what made the page unreadable. The same metadata is served as data so the
  * page can show one collapsible card per slot instead.
  */
-function slotFieldSpecs(values: SlotValues) {
+/** Exported for the test that pins each locked slot's advertised default. */
+export function slotFieldSpecs(values: SlotValues) {
   const fields: {
     key: string; kind: 'boolean' | 'number' | 'select' | 'text';
     label: string; description: string;
@@ -124,6 +133,12 @@ function slotFieldSpecs(values: SlotValues) {
     const meta = KIND_META[locked ?? 'manual'];
     const chosen = typeof values[`slot${n}Kind`] === 'string' ? values[`slot${n}Kind`] as string : NO_KIND;
     const shown = KIND_META[(isFreeKind(chosen) ? chosen : 'manual') as keyof typeof KIND_META];
+    // A locked slot is not "manual": its allowance default is the one the
+    // collector will actually use. Reading it from `shown` advertised $20 for
+    // both locked slots while the collector used $80 and $10 — a user trusting
+    // the field would have re-entered the wrong figure and changed the
+    // allowance-weighted headline without being told.
+    const allowanceMeta = locked ? meta : shown;
     if (locked) {
       fields.push({
         key: `slot${n}Enabled`, kind: 'boolean',
@@ -154,16 +169,16 @@ function slotFieldSpecs(values: SlotValues) {
     fields.push({
       key: `slot${n}Allowance`, kind: 'number',
       label: 'Allowance per period (USD)',
-      description: `Defaults to $${shown.allowanceUsd}; set your plan's real figure.`,
+      description: `Defaults to $${allowanceMeta.allowanceUsd}; set your plan's real figure.`,
       value: typeof values[`slot${n}Allowance`] === 'number' ? values[`slot${n}Allowance`] as number : null,
-      placeholder: shown.allowanceUsd,
+      placeholder: allowanceMeta.allowanceUsd,
     });
     fields.push({
       key: `slot${n}RenewalDay`, kind: 'number',
       label: 'Renewal day of the month',
-      description: `Defaults to ${shown.renewalDay}. Providers rarely publish their billing period; OpenCode publishes an exact reset and overrides this.`,
+      description: `Defaults to ${allowanceMeta.renewalDay}. Providers rarely publish their billing period; OpenCode publishes an exact reset and overrides this.`,
       value: typeof values[`slot${n}RenewalDay`] === 'number' ? values[`slot${n}RenewalDay`] as number : null,
-      placeholder: shown.renewalDay,
+      placeholder: allowanceMeta.renewalDay,
     });
     if (!locked) {
       fields.push({
@@ -221,6 +236,42 @@ async function codexUsage(bb: BbPluginApi): Promise<ProviderUsage | null> {
   }
 }
 
+/**
+ * What BB knows about the Codex provider's setup, for explaining a blank slot.
+ *
+ * The quota call and the setup call fail in ways that look identical from the
+ * slot — no percentage either way — but "install the CLI" and "your sign-in
+ * expired" are different instructions. This is asked only when the quota did
+ * not answer, so a working provider costs one request, not two.
+ *
+ * Both the install and the sign-in happen on BB's Providers page. This plugin
+ * deliberately does not shell out to `npm i -g @openai/codex` or drive a login:
+ * BB owns provider setup, and a widget should not be managing global packages
+ * behind it.
+ */
+async function codexProviderState(bb: BbPluginApi): Promise<ProviderState | null> {
+  try {
+    const states = await bb.sdk.system.providerStates();
+    const found = (states as { providers?: ProviderStateEntry[] }).providers
+      ?.find(provider => provider.providerId === CODEX_PROVIDER);
+    if (!found) return null;
+    return {
+      status: found.status,
+      accountEmail: found.accountEmail,
+      planLabel: found.planLabel,
+      installedVersion: found.installedVersion,
+      minimumSupportedVersion: found.minimumSupportedVersion,
+      statusMessage: found.statusMessage,
+      canInstall: found.canInstall,
+      loginCommand: found.loginCommand,
+    };
+  } catch {
+    // No answer about the setup is still no answer; the row falls back to the
+    // generic hint rather than inventing a state.
+    return null;
+  }
+}
+
 export default function plugin(bb: BbPluginApi) {
   // Only credentials stay declarative. The host keeps them in its own 0600
   // secret files, never returns them to the app, and `bb plugin config` keeps
@@ -268,12 +319,18 @@ export default function plugin(bb: BbPluginApi) {
     const credentials = await credentialsHandle.get() as Record<string, unknown>;
     const asKey = (name: string) =>
       typeof credentials[name] === 'string' ? credentials[name] as string : '';
+    const codex = await codexUsage(bb);
     return collector.measure(
       readSlots(await slots.read()),
       {
         gateway: asKey('gatewayApiKey'),
         opencode: asKey('opencodeApiKey'),
-        codex: await codexUsage(bb),
+        codex,
+        // Asked only when the quota did not answer: a working provider needs no
+        // explanation, and the setup call is a second round trip.
+        codexState: codex === null || codex.status !== 'ok'
+          ? await codexProviderState(bb)
+          : null,
       },
       refresh,
     );

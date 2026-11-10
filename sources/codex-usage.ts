@@ -28,6 +28,29 @@ export type ProviderUsage =
   | { status: 'error'; message: string };
 
 /**
+ * What BB knows about the Codex provider itself, as opposed to its quota.
+ *
+ * `usageLimits` answers "how much is left", and answers it only once a provider
+ * is installed and signed in. When it answers nothing, this record is what
+ * separates the three reasons why — and each one has a different fix. The
+ * install and sign-in actions both live on BB's Providers settings page, which
+ * this plugin cannot drive, so naming the state is as far as it can go.
+ */
+export type ProviderState = {
+  status: 'ready' | 'not_installed' | 'unauthenticated' | 'expired' | 'unsupported_version' | 'unknown';
+  accountEmail: string | null;
+  planLabel: string | null;
+  installedVersion: string | null;
+  minimumSupportedVersion: string | null;
+  statusMessage: string | null;
+  canInstall: boolean;
+  loginCommand: string | null;
+};
+
+/** Where BB keeps the controls that fix every one of these states. */
+const PROVIDERS_PAGE = 'Settings → Providers';
+
+/**
  * The provider id this slot asks about.
  *
  * `provider-codex` registers itself under this id, and the same id is what the
@@ -48,21 +71,31 @@ export const CODEX_PROVIDER = 'codex';
 export function readCodexUsage(
   usage: ProviderUsage | undefined,
   today: string,
+  provider?: ProviderState | null,
 ): SourceResult {
   if (usage === undefined) {
-    // No provider answered for this id. Either the Codex provider is not
-    // installed, or it is installed without a sign-in — both leave the slot
-    // with nothing to read, and neither is a reading of zero. Reported as
-    // unavailable rather than unauthenticated: this plugin cannot tell which
-    // of the two it is, and claiming the credential was rejected would send the
-    // user to re-authenticate a provider that may not be installed at all.
-    return { ok: false, reason: 'unavailable' };
+    // No provider answered for this id. `provider` says which of the three
+    // reasons it is, and each sends the user somewhere different; without it
+    // the honest answer is "unavailable", because claiming the credential was
+    // rejected would send the user to re-authenticate a provider that may not
+    // be installed at all.
+    return { ok: false, reason: 'unavailable', hint: setupHint(provider) };
   }
   if (usage.status === 'not_installed' || usage.status === 'unauthenticated') {
-    return { ok: false, reason: 'unauthenticated' };
+    return { ok: false, reason: 'unauthenticated', hint: setupHint(provider) };
   }
-  if (usage.status === 'expired') return { ok: false, reason: 'unauthenticated' };
-  if (usage.status === 'error') return { ok: false, reason: 'unavailable' };
+  if (usage.status === 'expired') {
+    return { ok: false, reason: 'unauthenticated', hint: setupHint(provider) };
+  }
+  if (usage.status === 'error') {
+    // The provider is installed and signed in — it answered, with an error. The
+    // fix is the provider, not a credential, so the hint names the message.
+    return {
+      ok: false,
+      reason: 'unavailable',
+      hint: `BB's Codex provider could not read your quota: ${usage.message}`,
+    };
+  }
   if (usage.status !== 'ok') return { ok: false, reason: 'unavailable' };
 
   const windows = usage.windows.filter(window => Number.isFinite(window.usedPercent));
@@ -93,6 +126,50 @@ export function readCodexUsage(
       })),
     },
   };
+}
+
+/**
+ * One sentence naming what to do about a provider that cannot be read.
+ *
+ * Every branch points at BB's Providers page, because installing the CLI and
+ * signing in both live there and neither is something this plugin is allowed to
+ * do on the user's behalf. The states are kept distinct: "not installed" and
+ * "signed out" look identical from the quota call and need different clicks.
+ */
+function setupHint(provider: ProviderState | null | undefined): string {
+  if (!provider) {
+    // BB lists a provider only once it registers, and the Codex provider
+    // registers only when its CLI is present. So an absent entry means the
+    // setup is incomplete — but not which part: the provider may be disabled,
+    // or enabled with no CLI installed. Naming both is the honest answer, since
+    // this plugin cannot see the difference and either one is fixed in the
+    // same place.
+    return `BB is not reporting ChatGPT / Codex usage. Open ${PROVIDERS_PAGE}, `
+      + 'enable the Codex provider, and install its CLI if prompted.';
+  }
+  switch (provider.status) {
+    case 'not_installed':
+      return provider.canInstall
+        ? `The Codex CLI is not installed. Open ${PROVIDERS_PAGE} and install it, then sign in.`
+        : `The Codex CLI is not installed. Install it with \`${provider.loginCommand ?? 'codex login'}\` after installing the CLI.`;
+    case 'unauthenticated':
+      return provider.loginCommand
+        ? `The Codex CLI is signed out. Open ${PROVIDERS_PAGE} and sign in, or run \`${provider.loginCommand}\`.`
+        : `The Codex CLI is signed out. Open ${PROVIDERS_PAGE} and sign in.`;
+    case 'expired':
+      return provider.loginCommand
+        ? `Your Codex sign-in expired. Open ${PROVIDERS_PAGE} and sign in again, or run \`${provider.loginCommand}\`.`
+        : `Your Codex sign-in expired. Open ${PROVIDERS_PAGE} and sign in again.`;
+    case 'unsupported_version':
+      return `The Codex CLI is ${provider.installedVersion ?? 'older than'} the supported version`
+        + `${provider.minimumSupportedVersion ? ` ${provider.minimumSupportedVersion}` : ''}. Update it in ${PROVIDERS_PAGE}.`;
+    case 'unknown':
+      return provider.statusMessage
+        ? `BB could not read the Codex provider: ${provider.statusMessage}`
+        : `BB could not read the Codex provider. Check ${PROVIDERS_PAGE}.`;
+    default:
+      return `ChatGPT / Codex is not reporting usage. Check ${PROVIDERS_PAGE}.`;
+  }
 }
 
 /**

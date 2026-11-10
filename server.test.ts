@@ -32,6 +32,7 @@ const slot: SlotSnapshot = {
   staleSince: '2026-05-11',
   carriedFrom: null,
   carriedUnverified: false,
+  hint: null,
 };
 
 const snapshot = {

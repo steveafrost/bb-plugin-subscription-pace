@@ -99,7 +99,10 @@ export function SlotRow({ slot }: { slot: SlotSnapshot }) {
       </div>
 
       {problem ? (
-        <p className="mt-1 text-xs text-muted-foreground">{problem.detail}</p>
+        // The hint replaces the generic detail rather than joining it: the
+        // generic text says "refresh", and telling a user to refresh a provider
+        // that is not installed is worse than saying nothing.
+        <p className="mt-1 text-xs text-muted-foreground">{slot.hint ?? problem.detail}</p>
       ) : (
         <>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
