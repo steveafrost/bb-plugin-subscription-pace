@@ -41,7 +41,6 @@ const snapshot = {
     readable: 1,
     configured: 1,
     attention: 0,
-    closest: { index: 0, label: 'Vercel Token Pass' },
   },
   observedAt: 1_800_000_000_000,
 };

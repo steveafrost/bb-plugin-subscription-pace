@@ -117,8 +117,7 @@ projecting a hit day off six dead days.
 
 | Mark | Meaning |
 | --- | --- |
-| `In trouble` | How many readable subscriptions are over their limit or on pace to be before they reset. |
-| `Closest to its limit` | The slot with the highest used percent. |
+| The header count | How many readable subscriptions are over their limit or on pace to be before they reset. |
 | `Resets Nov 20` | The provider's reset, when it publishes one, else the configured day. |
 | `A single dot` | That slot has one reading so far, so there is no trend to draw yet. |
 | Filter buttons | `All subscriptions` or one slot at a time; only readable slots get a button. |

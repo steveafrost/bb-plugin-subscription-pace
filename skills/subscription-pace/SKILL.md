@@ -15,12 +15,13 @@ on everything else: Vercel publishes dollars, OpenCode publishes percentages and
 That percent is the chart's y-axis, fixed at 0–110% so the allowance rule stays visible at any
 scale.
 
-- `In trouble` — **there is no combined percentage, and do not invent one.** The count is how
+- The header count — **there is no combined percentage, and do not invent one.** It says how
   many readable subscriptions are either over their limit or on pace to run out before they
   reset. The weighted headline this replaced was removed because its weights were not all real:
   OpenCode reports a percentage of a *per-model* monthly limit ($15–$100 by model) that it never
-  names, so its weight was a guess and the headline inherited the error.
-- `Closest to its limit` — the slot with the highest used percent.
+  names, so its weight was a guess and the headline inherited the error. There is no "closest to
+  its limit" figure either: a plan at 95% on day 30 is not worse than one at 60% on day 3, so a
+  ranking by percent would be wrong about which is in more trouble.
 - `Resets Nov 20` — the provider's own reset when it publishes one, else the configured day.
 - `A single dot` — that provider reports a percentage but no history. Say so; do not describe
   the marker as a flat line.

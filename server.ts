@@ -54,14 +54,8 @@ const snapshotSchema = z.object({
   overall: z.object({
     readable: z.number().int().nonnegative(),
     configured: z.number().int().nonnegative(),
-    // Declared or the RPC strips it. `closest` carries the slot's own label so
-    // the panel can name it without a second lookup, and `index` so the chart's
-    // filter can highlight the same row.
+    // Declared or the RPC strips it.
     attention: z.number().int().nonnegative(),
-    closest: z.object({
-      index: z.number().int().nonnegative(),
-      label: z.string(),
-    }).nullable(),
   }),
   observedAt: z.number().int().nonnegative().nullable(),
 }).strict();

@@ -341,7 +341,6 @@ describe('combined view', () => {
     // subscription price standing in for a per-model limit nobody can read.
     expect(snapshot.overall.readable).toBe(2);
     expect(snapshot.overall.attention).toBe(1);
-    expect(snapshot.overall.closest).toEqual({ index: 0, label: 'Vercel Token Pass' });
   });
 
   it('counts a slot that is on pace to run out even when it has not yet', async () => {

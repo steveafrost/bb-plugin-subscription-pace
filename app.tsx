@@ -155,40 +155,11 @@ function PacePage() {
           {/* No combined percentage. It used to sit here as a weighted mean of
               per-slot percentages, weighted by allowance — but OpenCode reports
               a percentage of a per-model limit the plugin cannot read, so its
-              weight was invented and the headline carried that error. What is
-              left is the one claim that needs no weights: how many are in
-              trouble, and which is closest to its limit. */}
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              {/* One fixed label: a heading that pluralises on its own value
-                  reads "Need attention / 0", and a zero state should not need
-                  grammar of its own. */}
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                In trouble
-              </p>
-              <p className={overall.attention > 0
-                ? 'text-3xl font-semibold tabular-nums text-[var(--warning-text)]'
-                : 'text-3xl font-semibold tabular-nums'}
-              >
-                {overall.attention}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {overall.attention === 0
-                  ? `None of ${overall.readable} readable subscriptions is out of allowance or on pace to be.`
-                  : `of ${overall.readable} readable. Each row below carries its own verdict.`}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Closest to its limit</p>
-              <p className="text-2xl font-semibold tabular-nums">
-                {overall.closest === null ? '—' : overall.closest.label}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <CombinedChart slots={readable} />
-          </div>
+              weight was invented and the headline carried that error. A count of
+              subscriptions in trouble stood here next, and it went too: the
+              header already says how many need attention, and the rows below say
+              which. What is left is the chart, and it claims nothing on its own. */}
+          <CombinedChart slots={readable} />
           {unplotted.length > 0 ? (
             // The chart can only draw a slot that reports a percentage. Printing
             // the names it left out stops a tracked subscription from silently

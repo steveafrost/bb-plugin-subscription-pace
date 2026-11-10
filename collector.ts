@@ -108,8 +108,6 @@ export type Overall = {
    * trouble needs no weights, so it cannot be wrong in that way.
    */
   attention: number;
-  /** The slot closest to its limit, or null when none is readable. */
-  closest: { index: number; label: string } | null;
 };
 
 export type Snapshot = {
@@ -534,15 +532,10 @@ export function createCollector(options: {
     // rate runs the allowance out before it renews.
     const attention = readable.filter(slot =>
       slot.usedPercent !== null && (slot.usedPercent >= 100 || slot.hitDay !== null)).length;
-    const worst = readable.reduce<SlotSnapshot | null>((best, slot) =>
-      slot.usedPercent === null
-        ? best
-        : best === null || slot.usedPercent > (best.usedPercent ?? 0) ? slot : best, null);
     return {
       readable: readable.length,
       configured,
       attention,
-      closest: worst === null ? null : { index: worst.index, label: worst.label },
     };
   }
 

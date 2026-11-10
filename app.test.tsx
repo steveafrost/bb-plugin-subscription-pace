@@ -53,17 +53,12 @@ const snapshot = (slots: SlotSnapshot[]): Snapshot => {
   // depends on: "attention" is over-limit OR on pace to hit it, not just >=100.
   const attention = readable.filter(s =>
     s.usedPercent !== null && (s.usedPercent >= 100 || s.hitDay !== null)).length;
-  const worst = readable.reduce<SlotSnapshot | null>((best, s) =>
-    s.usedPercent === null
-      ? best
-      : best === null || s.usedPercent > (best.usedPercent ?? 0) ? s : best, null);
   return {
     slots,
     overall: {
       readable: readable.length,
       configured: slots.filter(s => s.status !== 'disabled').length,
       attention,
-      closest: worst === null ? null : { index: worst.index, label: worst.label },
     },
     observedAt: Date.parse('2026-11-09T12:00:00Z'),
   };
@@ -107,24 +102,24 @@ describe('Subscription Pace panel', () => {
     // The panel used to open with a weighted mean of the per-slot percentages.
     // It is gone on purpose: the weight was each slot's allowance, and OpenCode's
     // is a percentage of a per-model limit the plugin cannot read, so the
-    // headline was arithmetic on a guess. A count needs no weights.
+    // headline was arithmetic on a guess. Nothing replaced it — a count stood
+    // here for a while and went too, since the header and the rows already say
+    // it — so the chart is the only thing above the rows.
     const view = await renderPanel(snapshot([slot({ index: 0 }), opencode]));
-    expect(await view.findByText('In trouble')).toBeTruthy();
-    // 97% with no hitDay is not "in trouble" — it has not run out and is not
-    // projected to. The old headline would have read 88% and looked alarming.
+    expect(await view.findByText('Subscription Pace')).toBeTruthy();
     expect(view.queryByText(/Allowance used/)).toBeNull();
     expect(view.queryByText('88%')).toBeNull();
     expect(view.queryByText(/Across 2 subscriptions/)).toBeNull();
+    expect(view.queryByText('In trouble')).toBeNull();
+    expect(view.queryByText('Closest to its limit')).toBeNull();
   });
 
   it('counts a subscription that is on pace to run out, not just one already over', async () => {
-    // The point of the count over a percentage: 60% on day 3 of a 31-day period
-    // is worse than 95% on day 30, and a combined average cannot express that.
+    // 60% on day 3 of a 31-day period is worse than 95% on day 30, and no
+    // percentage of the whole can express that. The header carries the count.
     const burning = slot({ index: 0, usedPercent: 60, hitDay: '2026-11-15' });
     const view = await renderPanel(snapshot([burning, opencode]));
-    const heading = (await view.findByText('In trouble')).parentElement!;
-    expect(within(heading).getByText('1')).toBeTruthy();
-    expect(view.getByText(/1 of 2 readable subscriptions needs attention/)).toBeTruthy();
+    expect(await view.findByText(/1 of 2 readable subscriptions needs attention/)).toBeTruthy();
   });
 
   it('says none are in trouble when none are', async () => {
@@ -153,10 +148,13 @@ describe('Subscription Pace panel', () => {
       .toBeTruthy();
   });
 
-  it('names the subscription closest to its limit', async () => {
+  it('names no single subscription as the worst', async () => {
+    // "Closest to its limit" was the right half of the removed summary. It read
+    // as a ranking the panel does not make: a plan at 95% on day 30 is not
+    // worse than one at 60% on day 3, and only the rows can say which is which.
     const view = await renderPanel(snapshot([slot({ index: 0 }), opencode]));
-    const closest = (await view.findByText('Closest to its limit')).parentElement!;
-    expect(within(closest).getByText('Vercel Token Pass')).toBeTruthy();
+    await view.findByText('Subscription Pace');
+    expect(view.queryByText('Closest to its limit')).toBeNull();
   });
 
   it('shows dollars where they were measured and none where they were not', async () => {
@@ -308,17 +306,15 @@ describe('Subscription Pace panel', () => {
     expect(view.queryByText(/^Unchanged since/)).toBeNull();
   });
 
-  it('marks the attention count as a warning once something is over', async () => {
+  it('says nothing about attention in a big number', async () => {
     const view = await renderPanel(snapshot([
       slot({ index: 0, usedPercent: 120, hitDay: day(9), spentUsd: 96, remainingUsd: 0 }),
     ]));
-    // The big number is now a count of subscriptions in trouble, not a percent.
-    const heading = (await view.findByText('In trouble')).parentElement!;
-    const count = within(heading).getByText('1');
-    expect(count.className).toContain('text-3xl');
-    expect(count.className).toContain('warning-text');
-    // The row still carries its own 120%, so nothing was lost by dropping the
-    // combined figure — the detail moved to where it belongs.
+    await view.findByText('Subscription Pace');
+    // The 3xl count that stood here is gone. The header still carries the
+    // count, and the row still carries its own 120%, so nothing was lost.
+    expect(view.queryByText('In trouble')).toBeNull();
+    expect(view.getByText(/1 of 1 readable subscriptions needs attention/)).toBeTruthy();
     expect(view.getAllByText('120%').length).toBeGreaterThan(0);
   });
 
