@@ -23,8 +23,10 @@ scale.
   its limit" figure either: a plan at 95% on day 30 is not worse than one at 60% on day 3, so a
   ranking by percent would be wrong about which is in more trouble.
 - `Resets Nov 20` — the provider's own reset when it publishes one, else the configured day.
-- `A single dot` — that provider reports a percentage but no history. Say so; do not describe
-  the marker as a flat line.
+- `A single dot` — that slot has one reading so far, so there is no trend to draw. Say that
+  rather than describing the marker as a flat line. For Codex it is permanent, because its
+  provider publishes only a current quota; for OpenCode it means sampling has not accumulated
+  yet, and a line appears once it has.
 - `No spend since Nov 3` — spend stopped before today. Nothing is projected past that day,
   because a flat tail there means the allowance ran out, not that usage slowed.
 
@@ -63,10 +65,10 @@ the plugin's settings page as one collapsible card per slot. Only `gatewayApiKey
 `opencodeApiKey` are declarative, so those are the only two keys `bb plugin config` knows.
 
 A plan with no readable usage (Claude, Cursor…) needs exactly one more field:
-`slotManualSpend`, the dollars spent so far this period. Do not ask for a date — the plugin stamps
-the figure per period, on the day it first saw that value in that period. A figure the user has
-not touched since an earlier period is still drawn, marked as unchanged since that period began,
-so tell them to update it when the amount differs rather than expecting the row to go blank.
+`slotManualSpend`, the dollars spent so far this period. Do not ask for a date — the plugin dates
+the figure to the day its stored value last changed. A figure the user has not touched since an
+earlier period is still drawn, marked as unchanged since that period began, so tell them to
+update it when the amount differs rather than expecting the row to go blank.
 
 Neither key needs to be created for this plugin: use the ones bb already calls these services
 with. Never ask for or print a key value. A Vercel **gateway** key cannot read the team billing
@@ -75,10 +77,14 @@ renewal day is configured rather than discovered.
 
 ## What each source can and cannot do
 
-- **Vercel**: `/v1/credits` is the authoritative live balance; `/v1/report` supplies only the
-  daily shape. The two disagree — the pass-only report sums to $80.02 of an $80 pass while
-  credits says $2.31 is left — so the series is scaled to the live figure. Without that the
-  drawn line crosses the allowance rule while the row reads 97%.
+- **Vercel**: `/v1/credits` is the authoritative live balance; `/v1/report` supplies the daily
+  shape. The two disagree — the pass-only report sums to $80.02 of an $80 pass while credits
+  says $2.31 is left — and the report is what the row prints while it has rows. It lags by
+  several days, so when it returns none at all the fallback is `min(total_used, $80)`: the pass
+  is drawn down before the gateway's own $5 credit, so pass spend never exceeds the pass.
+  Subtracting the $5 instead credited an exhausted pass back to 97%, which is the defect this
+  replaced. Either way the two can disagree by a few cents, which is why the chart's last point
+  is pinned to the row's figure rather than to the report's own total.
 - **OpenCode**: `/usage` returns `rolling`, `weekly` and `monthly` percentages plus the exact
   `resetsAt` for each. There is **no history and no dollar spend**; `/usage/history`, `/credits`,
   `/ledger`, `/limits` and every similar path 404. Its line is one point by nature.

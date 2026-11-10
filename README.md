@@ -111,8 +111,11 @@ Two things this source cannot do:
 
 Token Pass stops reporting cost the moment the credit is gone, which looks identical to a
 subscription nobody used. So the collector reports `lastSpendDay`, and when it falls before
-today no rate and no hit day are claimed — the row says "No spend since Nov 3" instead of
-projecting a hit day off six dead days.
+today no rate is claimed and nothing is projected forward — the row says "No spend since Nov 3"
+instead of projecting a hit day off six dead days.
+
+A limit already reached is the one case that still names a day: `hitDay` is today, because the
+limit was reached rather than forecast.
 
 ## Reading the panel
 
