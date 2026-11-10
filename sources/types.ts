@@ -46,6 +46,29 @@ export type Measure = {
    */
   periodWindow?: string | null;
   /**
+   * How many days the window that became `usedPercent` runs for.
+   *
+   * Set only where the provider's own window *name* states the cadence, so the
+   * period start is the reset instant minus this span instead of a calendar
+   * month. A weekly quota measured over a month is not a rounding error: the row
+   * would print a span five times the real one, the chart would stretch its
+   * x-axis back to match, and — worse — the sample cutoff would keep the
+   * previous week's readings, so the series would appear to fall at renewal.
+   *
+   * Null means "no stated length" and keeps the calendar-month rule.
+   */
+  periodDays?: number | null;
+  /**
+   * Whether `usedPercent` is a share of `slot.allowanceUsd`.
+   *
+   * False when the provider reports a percentage of a limit the plugin cannot
+   * name — OpenCode's weekly window — because the row multiplies the percentage
+   * by the allowance to print dollars, and that multiplication is only arithmetic
+   * if the two describe the same thing. A monthly limit times a weekly share
+   * prints a number that is wrong by the ratio between the windows.
+   */
+  percentOfAllowance?: boolean;
+  /**
    * Our own observations of a live percentage, when the provider publishes no
    * history at all.
    *

@@ -28,7 +28,10 @@ const report = (days: { day: string; usd: number }[]) => json({
 const usage = (over: Partial<Record<'rolling' | 'weekly' | 'monthly', number>> = {}) => json({
   usage: {
     rolling: { status: 'ok', percent: over.rolling ?? 9, resetsAt: '2026-11-09T18:00:11Z' },
-    weekly: { status: 'ok', percent: over.weekly ?? 7, resetsAt: '2026-11-16T00:00:00Z' },
+    // Four days out, not seven: a weekly window resetting exactly seven days
+    // from NOW would begin today, which is a degenerate period that no real
+    // reading produces and that puts every stored sample outside the window.
+    weekly: { status: 'ok', percent: over.weekly ?? 7, resetsAt: '2026-11-13T00:00:00Z' },
     monthly: { status: 'ok', percent: over.monthly ?? 17, resetsAt: '2026-12-06T14:22:07Z' },
   },
 });
@@ -189,32 +192,97 @@ describe('OpenCode Go', () => {
     // The endpoint cannot mean "-50% used". Taken at face value it renders
     // "-50%" beside an empty bar with no warning, and the collector would
     // project a hit day further out than the real one.
+    //
+    // Both windows are made unusable here. Only one of them drives the
+    // headline, so a negative reading in the other would otherwise be refused
+    // silently by the fallback and this test would pass without proving that
+    // anything rejects it.
     const snapshot = await collector(router({
       usage: () => json({
         usage: {
           rolling: { status: 'ok', percent: 9, resetsAt: '2026-11-09T18:00:11Z' },
-          weekly: { status: 'ok', percent: 7, resetsAt: '2026-11-16T00:00:00Z' },
+          weekly: { status: 'ok', percent: -50, resetsAt: '2026-11-16T00:00:00Z' },
           monthly: { status: 'ok', percent: -50, resetsAt: '2026-12-06T14:22:07Z' },
         },
       }),
     })).measure(readSlots(slotValues()), keys);
     const opencode = snapshot.slots[1]!;
-    // The monthly window is unusable, so the slot reports no reading rather
-    // than a negative one.
     expect(opencode.usedPercent).not.toBe(-50);
     expect(opencode.status).not.toBe('ok');
   });
 
-  it('uses the monthly percentage and the provider reset date', async () => {
-    const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
+  it('falls back to the monthly window when the weekly one is unusable', async () => {
+    // A window the endpoint stops publishing should not blank a plan that is
+    // otherwise readable. `rolling` is deliberately not in the chain: it is a
+    // five-hour sub-window and says nothing about a week or a month.
+    const snapshot = await collector(router({
+      usage: () => json({
+        usage: {
+          rolling: { status: 'ok', percent: 9, resetsAt: '2026-11-09T18:00:11Z' },
+          weekly: { status: 'ok', percent: -50, resetsAt: '2026-11-16T00:00:00Z' },
+          monthly: { status: 'ok', percent: 17, resetsAt: '2026-12-06T14:22:07Z' },
+        },
+      }),
+    })).measure(readSlots(slotValues()), keys);
     const opencode = snapshot.slots[1]!;
     expect(opencode.status).toBe('ok');
     expect(opencode.usedPercent).toBe(17);
+    expect(opencode.periodWindow).toBe('monthly');
+    // A monthly share *is* a share of the allowance the user entered, so the
+    // row may derive dollars from it.
+    expect(opencode.percentOfAllowance).toBe(true);
+  });
+
+  it('uses the weekly percentage and the provider reset date', async () => {
+    const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
+    const opencode = snapshot.slots[1]!;
+    expect(opencode.status).toBe('ok');
+    // The weekly window drives: it needs no dollar allowance, which the
+    // monthly one did, and no such allowance can be read from the endpoint.
+    expect(opencode.usedPercent).toBe(7);
+    expect(opencode.periodWindow).toBe('weekly');
     expect(opencode.spentUsd).toBeNull();
-    expect(opencode.resetsAt).toBe('2026-12-06T14:22:07Z');
-    // The real month runs from the 6th of the previous month to the 6th.
-    expect(opencode.renewal).toBe('2026-12-06');
+    expect(opencode.resetsAt).toBe('2026-11-13T00:00:00Z');
+    expect(opencode.renewal).toBe('2026-11-13');
+    // A week before the reset, not a calendar month. The month rule would have
+    // claimed 2026-10-13 and drawn four weeks of history that do not exist.
     expect(opencode.periodStart).toBe('2026-11-06');
+  });
+
+  it('does not derive dollars from a weekly share of a monthly allowance', async () => {
+    // The figure in settings is the monthly limit; the headline is now the
+    // weekly share. Multiplying one by the other prints a number wrong by the
+    // ratio between the windows, in the same notation as a measured one.
+    //
+    // The allowance is set explicitly: without one the row already refuses to
+    // derive dollars, so the test would pass on the wrong reason and would keep
+    // passing if the provenance check were removed.
+    const snapshot = await collector(router({}))
+      .measure(readSlots(slotValues({ slot2Allowance: 100 })), keys);
+    const opencode = snapshot.slots[1]!;
+    expect(opencode.allowanceEntered).toBe(true);
+    expect(opencode.allowanceUsd).toBe(100);
+    expect(opencode.percentOfAllowance).toBe(false);
+    // Still no dollars: the endpoint never reports any.
+    expect(opencode.spentUsd).toBeNull();
+    expect(opencode.remainingUsd).toBeNull();
+  });
+
+  it('still derives dollars when the monthly window is the one that drove', async () => {
+    // The complement of the test above, so removing the flag cannot pass both:
+    // a monthly share *is* a share of the allowance the user typed.
+    const snapshot = await collector(router({
+      usage: () => json({
+        usage: {
+          rolling: { status: 'ok', percent: 9, resetsAt: '2026-11-09T18:00:11Z' },
+          weekly: { status: 'ok', percent: -50, resetsAt: '2026-11-13T00:00:00Z' },
+          monthly: { status: 'ok', percent: 17, resetsAt: '2026-12-06T14:22:07Z' },
+        },
+      }),
+    })).measure(readSlots(slotValues({ slot2Allowance: 100 })), keys);
+    const opencode = snapshot.slots[1]!;
+    expect(opencode.periodWindow).toBe('monthly');
+    expect(opencode.percentOfAllowance).toBe(true);
   });
 
   it('reports the rolling and weekly windows alongside the monthly one', async () => {
@@ -241,9 +309,61 @@ describe('OpenCode Go', () => {
     expect(snapshot.slots[1]!.status).toBe('unauthenticated');
   });
 
+  it('uses a discovered key only after the configured one is rejected', async () => {
+    // A machine signed in to OpenCode should not need the same credential
+    // pasted into settings twice. The discovered key is a fallback: it answers
+    // only once the configured key has failed.
+    const snapshot = await collector(router({})).measure(
+      readSlots(slotValues()),
+      { ...keys, opencode: 'sk-h_stale', opencodeFallbacks: ['oc_s_working'] },
+    );
+    expect(snapshot.slots[1]!.status).toBe('ok');
+  });
+
+  it('never lets a failing fallback replace a working key', async () => {
+    // The dangerous direction. If the loop kept the last attempt rather than
+    // returning the first success, a bad discovered key would blank a slot that
+    // the configured key reads fine — turning a working panel into a broken one
+    // because an unrelated file on the machine held a stale credential.
+    const spy = router({});
+    const snapshot = await collector(spy).measure(
+      readSlots(slotValues()),
+      { ...keys, opencodeFallbacks: ['sk-h_stale'] },
+    );
+    expect(snapshot.slots[1]!.status).toBe('ok');
+    expect(snapshot.slots[1]!.usedPercent).toBe(7);
+    // Only the configured key was sent: the fallback is not even attempted
+    // once the first key answers, so a dead credential is never transmitted.
+    const sent = (spy as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls
+      .filter(([url]) => url.includes('/v1/usage'))
+      .map(([, init]) => (init.headers as Record<string, string>).Authorization);
+    expect(sent).toEqual(['Bearer oc_s_test']);
+  });
+
+  it('does not mask a rejected key with the fallback\'s failure reason', async () => {
+    // Both keys are rejected. The reason reported must be the configured key's
+    // — "your key was rejected" is actionable — not whatever the discovered key
+    // happened to return.
+    let call = 0;
+    const snapshot = await collector(vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/credits')) return credits(2.36, 82.64);
+      if (url.includes('/v1/report')) return report([]);
+      if (url.includes('/v1/usage')) {
+        call += 1;
+        return call === 1 ? json({}, 401) : json({}, 503);
+      }
+      throw new Error(`unexpected url ${url}`);
+    }) as unknown as typeof fetch).measure(
+      readSlots(slotValues()),
+      { ...keys, opencodeFallbacks: ['sk-h_stale'] },
+    );
+    expect(snapshot.slots[1]!.status).toBe('unauthenticated');
+  });
+
   it('is a single point when nothing has been sampled yet', async () => {
     const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
-    expect(snapshot.slots[1]!.daily).toEqual([{ day: '2026-11-09', percent: 17 }]);
+    expect(snapshot.slots[1]!.daily).toEqual([{ day: '2026-11-09', percent: 7 }]);
     expect(snapshot.slots[1]!.ratePercentPerDay).toBeNull();
   });
 
@@ -254,8 +374,11 @@ describe('OpenCode Go', () => {
     const store = createSampleStore(new Database(':memory:'));
     // 11-03 is before this period began (the window starts 11-06), so it is a
     // finished period's sample and must not appear on this chart.
-    store.observe('2026-11-03', 4, 0, '2026-11-03');
-    store.observe('2026-11-06', 9, 0, '2026-11-06');
+    store.observe('2026-11-03', 4, 0, '2026-11-03', 'weekly');
+    // Below the live 7%, because a cumulative counter only rises. A stored
+    // sample above the live reading is a counter that went backwards, which
+    // yields a negative rate and no trend to assert.
+    store.observe('2026-11-06', 3, 0, '2026-11-06', 'weekly');
 
     const snapshot = await createCollector({ now, fetch: router({}), samples: store })
       .measure(readSlots(slotValues()), keys);
@@ -263,8 +386,8 @@ describe('OpenCode Go', () => {
     // The series is zero-filled from the period start and carries each sampled
     // level forward, ending on the live reading.
     expect(opencode.daily.length).toBeGreaterThan(1);
-    expect(opencode.daily.at(-1)!.percent).toBeCloseTo(17, 5);
-    expect(opencode.daily[0]!.percent).toBeCloseTo(9, 5);
+    expect(opencode.daily.at(-1)!.percent).toBeCloseTo(7, 5);
+    expect(opencode.daily[0]!.percent).toBeCloseTo(3, 5);
     expect(opencode.ratePercentPerDay).toBeGreaterThan(0);
   });
 
@@ -277,34 +400,56 @@ describe('OpenCode Go', () => {
     const store = createSampleStore(new Database(':memory:'));
     // Two samples must survive, or the collector takes its single-point branch
     // and the drawn series never passes through here at all.
-    store.observe('2026-11-06', 9, 0, '2026-11-06');
-    store.observe('2026-11-09', 9, 0, '2026-11-06');
+    store.observe('2026-11-06', 9, 0, '2026-11-06', 'weekly');
+    store.observe('2026-11-09', 9, 0, '2026-11-06', 'weekly');
 
     const snapshot = await createCollector({ now, fetch: router({}), samples: store })
       .measure(readSlots(slotValues()), keys);
     const opencode = snapshot.slots[1]!;
-    expect(opencode.usedPercent).toBe(17);
+    expect(opencode.usedPercent).toBe(7);
     // 11-06 was sampled at 9% and today's stored sample also says 9%, but the
     // provider now reports 17% — so the drawn line must end at 17, not 9.
-    expect(opencode.daily.at(-1)!.percent).toBeCloseTo(17, 5);
+    expect(opencode.daily.at(-1)!.percent).toBeCloseTo(7, 5);
+  });
+
+  it('does not draw a monthly sample beside a weekly one', async () => {
+    // Each window's percentage is a share of its OWN cap, so the same number
+    // means different things under different windows. Live readings showed
+    // weekly 36 beside monthly 32 — impossible if both were shares of one
+    // budget. A stored monthly sample therefore cannot join a weekly series: it
+    // would draw the line starting above where the weekly window really began,
+    // or falling when the window changed, which reads as spend reversing.
+    const store = createSampleStore(new Database(':memory:'));
+    // Both on earlier days: today's point is pinned to the live reading, so a
+    // sample stored for today would be overwritten and prove nothing.
+    store.observe('2026-11-06', 19, 0, '2026-11-06', 'monthly');
+    store.observe('2026-11-07', 20, 0, '2026-11-06', 'weekly');
+
+    const snapshot = await createCollector({ now, fetch: router({}), samples: store })
+      .measure(readSlots(slotValues()), keys);
+    const opencode = snapshot.slots[1]!;
+    expect(opencode.periodWindow).toBe('weekly');
+    // The monthly 19 is absent and the weekly 20 is present.
+    expect(opencode.daily.map(point => point.percent)).not.toContain(19);
+    expect(opencode.daily.map(point => point.percent)).toContain(20);
   });
 
   it('keeps the first reading of a day so the series cannot drift upward', async () => {
     const store = createSampleStore(new Database(':memory:'));
-    store.observe('2026-11-09', 12, 0, '2026-11-06');
-    store.observe('2026-11-09', 17, 0, '2026-11-06');
+    store.observe('2026-11-09', 12, 0, '2026-11-06', 'weekly');
+    store.observe('2026-11-09', 17, 0, '2026-11-06', 'weekly');
     // A cumulative counter read twice in a day reports more the second time;
     // the first reading is the one that matches when the day began.
-    expect(store.read('2026-11-06')).toEqual([{ day: '2026-11-09', percent: 12 }]);
+    expect(store.read('2026-11-06', 'weekly')).toEqual([{ day: '2026-11-09', percent: 12 }]);
   });
 
   it('drops samples from a finished period', async () => {
     const store = createSampleStore(new Database(':memory:'));
-    store.observe('2026-10-01', 90, 0, '2026-10-01');
+    store.observe('2026-10-01', 90, 0, '2026-10-01', 'weekly');
     store.clear('2026-11-06');
     // Drawing a 90% sample beside this period's 17% would show spend going
     // backwards, which reads as a refund rather than a renewal.
-    expect(store.read('2026-10-01')).toEqual([]);
+    expect(store.read('2026-10-01', 'weekly')).toEqual([]);
   });
 });
 
@@ -318,9 +463,9 @@ describe('a provider value that cannot be true', () => {
     // everything on or after it. A reset in 2099 would put that start in the
     // future and wipe every recorded sample, blanking the trend for good.
     const store = createSampleStore(new Database(':memory:'));
-    store.observe('2026-11-01', 5, Date.parse('2026-11-01T12:00:00Z'), '2026-10-20');
-    store.observe('2026-11-05', 9, Date.parse('2026-11-05T12:00:00Z'), '2026-10-20');
-    const before = store.read('2026-10-20').length;
+    store.observe('2026-11-01', 5, Date.parse('2026-11-01T12:00:00Z'), '2026-10-20', 'weekly');
+    store.observe('2026-11-05', 9, Date.parse('2026-11-05T12:00:00Z'), '2026-10-20', 'weekly');
+    const before = store.read('2026-10-20', 'weekly').length;
     expect(before).toBe(2);
     const snapshot = await createCollector({
       now,
@@ -328,7 +473,7 @@ describe('a provider value that cannot be true', () => {
       samples: store,
     }).measure(readSlots(slotValues()), keys);
     // The history survives, and the slot still reports its live percentage.
-    expect(store.read('2026-10-20').length).toBeGreaterThanOrEqual(before);
+    expect(store.read('2026-10-20', 'weekly').length).toBeGreaterThanOrEqual(before);
     const opencode = snapshot.slots.find(slot => slot.kind === 'opencode-go')!;
     expect(opencode.status).toBe('ok');
     expect(opencode.usedPercent).toBeCloseTo(17, 1);
@@ -379,7 +524,7 @@ describe('combined view', () => {
     expect(vercel.usedPercent).toBeCloseTo(62.5, 5);
     expect(vercel.hitDay).not.toBeNull();
     const opencode = snapshot.slots.find(slot => slot.kind === 'opencode-go')!;
-    expect(opencode.usedPercent).toBe(17);
+    expect(opencode.usedPercent).toBe(7);
     expect(opencode.hitDay).toBeNull();
     // Nothing is at or over 100%, so a count of 1 proves the pace half ran.
     expect(snapshot.overall.attention).toBe(1);

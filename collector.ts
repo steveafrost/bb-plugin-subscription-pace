@@ -61,6 +61,15 @@ export type SlotSnapshot = {
   /** The `windows` key whose percentage became `usedPercent`, when one did. */
   periodWindow: string | null;
   /**
+   * Whether `usedPercent` is a share of `allowanceUsd`.
+   *
+   * The row multiplies the percentage by the allowance to print dollars, which
+   * is only arithmetic when both describe the same limit. OpenCode's weekly
+   * share is not a share of the monthly figure the user entered, so that
+   * multiplication would print a number wrong by the ratio between the windows.
+   */
+  percentOfAllowance: boolean;
+  /**
    * The last day the source recorded any spend.
    *
    * A live balance cannot tell a quiet subscription from an exhausted one:
@@ -169,6 +178,7 @@ function periodFrom(
   now: number,
   slot: Slot,
   resetsAt: string | null,
+  periodDays: number | null,
 ): { start: string; end: string; renewal: string } {
   const today = new Date(now).toISOString().slice(0, 10);
   const stated = resetsAt === null ? null : dayOf(resetsAt);
@@ -178,7 +188,12 @@ function periodFrom(
     ? stated
     : null;
   if (resetDay !== null) {
-    return { start: monthBefore(resetDay), end: today, renewal: resetDay };
+    // A window whose length the provider states is measured from its own reset,
+    // not from a calendar month. Codex's weekly quota resets tomorrow; drawing
+    // it against a month-long span would label the row with four weeks of
+    // history it does not have and stretch the chart's x-axis to match.
+    const start = periodDays === null ? monthBefore(resetDay) : daysBefore(resetDay, periodDays);
+    return { start, end: today, renewal: resetDay };
   }
   const period = periodAt(now, slot.renewalDay);
   return { start: period.start, end: period.end, renewal: nextRenewal(period, slot.renewalDay) };
@@ -287,6 +302,15 @@ function lastSpendDay(measure: Measure): string | null {
 export type CollectorKeys = {
   gateway: string;
   opencode: string;
+  /**
+   * Keys found on the machine, tried only after `opencode` is rejected.
+   *
+   * OpenCode writes its own credential to `auth.json`, and a machine signed in
+   * there should not need the same key pasted into settings twice. But its key
+   * is not interchangeable with the one the usage endpoint accepts, so these are
+   * candidates and never a replacement.
+   */
+  opencodeFallbacks?: string[];
   codex: ProviderUsage | null;
   /** What BB knows about the Codex provider itself, for explaining a failure. */
   codexState?: ProviderState | null;
@@ -351,6 +375,7 @@ export function createCollector(options: {
       daily: [],
       windows: [],
       periodWindow: null,
+      percentOfAllowance: true,
       lastSpendDay: null,
       staleSince: null,
       carriedFrom: null,
@@ -386,7 +411,11 @@ export function createCollector(options: {
         controller.signal,
       )
       : slot.source === 'opencode-usage'
-        ? await readOpencodeUsage({ key: keys.opencode }, options.fetch ?? fetch, controller.signal)
+        ? await readOpencodeUsage(
+          { key: keys.opencode, fallbackKeys: keys.opencodeFallbacks ?? [] },
+          options.fetch ?? fetch,
+          controller.signal,
+        )
         : slot.source === 'codex-usage'
           ? readCodexUsage(keys.codex ?? undefined, today, keys.codexState ?? null)
           : readManualSpend({
@@ -408,7 +437,7 @@ export function createCollector(options: {
 
     if (!result.ok) return blank(slot, result.reason, result.hint ?? null);
     const measure: Measure = result.measure;
-    const window = periodFrom(now(), slot, measure.resetsAt);
+    const window = periodFrom(now(), slot, measure.resetsAt, measure.periodDays ?? null);
 
     // A provider that publishes a daily series is drawn from it. One that only
     // publishes a live percentage — OpenCode — has no history to draw, so its
@@ -425,7 +454,15 @@ export function createCollector(options: {
       // restarts at renewal, so an old high sample beside a new low one draws a
       // line that falls, which reads as spend reversing rather than resetting.
       options.samples.clear(since);
-      const series = options.samples.observe(today, measure.usedPercent, now(), since);
+      // Keyed by the window that produced the reading. Each window's percentage
+      // is a share of its own cap, so a monthly 19 and a weekly 36 are different
+      // quantities: drawn on one line they show spend jumping for no reason, or
+      // falling when a smaller-cap window takes over. Only samples recorded
+      // under the window driving now are returned.
+      const windowKey = measure.periodWindow ?? 'monthly';
+      const series = options.samples.observe(
+        today, measure.usedPercent, now(), since, windowKey,
+      );
       if (series.length > 1) {
         // Kept as percentages, not converted to dollars and back. The provider
         // publishes a share of a per-model limit this plugin cannot see, so any
@@ -498,6 +535,7 @@ export function createCollector(options: {
       daily,
       windows: measure.windows,
       periodWindow: measure.periodWindow ?? null,
+      percentOfAllowance: measure.percentOfAllowance ?? true,
       lastSpendDay: lastActive,
       // Live sources: the newest record the provider holds predates this period,
       // so a zero here may be a source that has not caught up rather than a

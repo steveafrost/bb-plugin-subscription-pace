@@ -48,8 +48,9 @@ function SetupSteps() {
     {
       title: 'Check each allowance',
       detail: 'Vercel Token Pass is $80 by default. OpenCode Go has no default: it reports a share '
-        + 'of a per-model limit, so enter that model\'s monthly limit and the panel will estimate '
-        + 'the spend from it. The rest are placeholders — set the real figure.',
+        + 'of a per-model limit it never names, and the window that drives its row is measured '
+        + 'against a different cap than its monthly one, so no dollar figure can be worked out. '
+        + 'The rest are placeholders — set the real figure.',
     },
     {
       title: 'Fill the three free slots',

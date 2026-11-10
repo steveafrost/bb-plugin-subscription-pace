@@ -52,9 +52,9 @@ the figure was changed. Present the distinction rather than calling all of it "u
 3. Per slot, an allowance and a renewal day. Once a slot names a subscription they default to
    that subscription's guess ($80 Token Pass on the Vercel team cycle's 20th, $100 Claude, $10
    Copilot) — confirm them; they are guesses. **OpenCode Go has no default at all**: its
-   percentage is of a per-model limit the endpoint does not name, so leave the field blank to
-   see the share only, or enter your model's monthly limit and the row estimates the spend from
-   the provider's percentage (marked `≈`, because the provider never sent a dollar figure).
+   percentage is of a per-model limit the endpoint does not name, and the weekly window that
+   drives the headline is measured against a different cap than the monthly one, so entering a
+   monthly limit produces no dollar estimate — the row shows the share only.
    Codex reports a bare percentage too, so its allowance is nominal and never shown as money.
 4. Slots 3–5 choose a subscription. `Not tracked` is the off state — there is no separate
    enable switch on those slots. A slot left on `Not tracked` draws nothing and borrows no
@@ -88,6 +88,13 @@ renewal day is configured rather than discovered.
 - **OpenCode**: `/usage` returns `rolling`, `weekly` and `monthly` percentages plus the exact
   `resetsAt` for each. There is **no history and no dollar spend**; `/usage/history`, `/credits`,
   `/ledger`, `/limits` and every similar path 404. Its line is one point by nature.
+  `weekly` drives the headline (falling back to `monthly`); `rolling` never does, because a
+  five-hour window is not a period. Each percentage is of its **own** cap, not of the monthly
+  one — live readings showed `weekly 36` above `monthly 32`, impossible under a shared
+  denominator. A key discovered in `~/.local/share/opencode/auth.json` is tried only after the
+  configured key is rejected: measured here, that file's `sk-h…` value returns 401 from `/usage`
+  while the `oc_s…` key returns 200, so it can rescue a machine whose settings key is stale but
+  must never displace a working one.
 - Auth split: `/usage` accepts only `Authorization: Bearer`, never `X-Api-Key`, and wants a
   browser `User-Agent`. `/models` accepts either.
 - **Codex**: read through BB, not through OpenAI. `bb.sdk.system.usageLimits({ providerId:

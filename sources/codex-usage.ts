@@ -47,8 +47,15 @@ export type ProviderState = {
   loginCommand: string | null;
 };
 
-/** Where BB keeps the controls that fix every one of these states. */
+/**
+ * Where BB reports these states. Note it is not where they are fixed: the
+ * Providers page shows "signed out" and offers no sign-in control, because
+ * signing in runs the CLI itself.
+ */
 const PROVIDERS_PAGE = 'Settings → Providers';
+
+/** The CLI's own download page, as BB's provider advertises it. */
+const INSTALL_URL = 'https://developers.openai.com/codex/cli';
 
 /**
  * The provider id this slot asks about.
@@ -147,22 +154,23 @@ function setupHint(provider: ProviderState | null | undefined): string {
     // or enabled with no CLI installed. Naming both is the honest answer, since
     // this plugin cannot see the difference and either one is fixed in the
     // same place.
-    return `BB is not reporting ChatGPT / Codex usage. Open ${PROVIDERS_PAGE}, `
-      + 'enable the Codex provider, and install its CLI if prompted.';
+    return 'BB is not reporting ChatGPT / Codex usage. Enable the Codex provider in '
+      + `${PROVIDERS_PAGE}, then install its CLI from ${INSTALL_URL} and run `
+      + '`codex` in a terminal to sign in.';
   }
   switch (provider.status) {
+    // Signing in is a terminal action, not a settings one. BB's Providers page
+    // reports this state and offers no sign-in control; the provider's own copy
+    // says "run `codex` on the machine to sign in", and an earlier version of
+    // these hints sent the user to a page with no button on it.
     case 'not_installed':
       return provider.canInstall
-        ? `The Codex CLI is not installed. Open ${PROVIDERS_PAGE} and install it, then sign in.`
-        : `The Codex CLI is not installed. Install it with \`${provider.loginCommand ?? 'codex login'}\` after installing the CLI.`;
+        ? `The Codex CLI is not installed. Install it from ${INSTALL_URL}, then run \`${provider.loginCommand ?? 'codex'}\` to sign in.`
+        : `The Codex CLI is not installed. Install it from ${INSTALL_URL}.`;
     case 'unauthenticated':
-      return provider.loginCommand
-        ? `The Codex CLI is signed out. Open ${PROVIDERS_PAGE} and sign in, or run \`${provider.loginCommand}\`.`
-        : `The Codex CLI is signed out. Open ${PROVIDERS_PAGE} and sign in.`;
+      return `The Codex CLI is signed out. Run \`${provider.loginCommand ?? 'codex'}\` in a terminal to sign in, then reload.`;
     case 'expired':
-      return provider.loginCommand
-        ? `Your Codex sign-in expired. Open ${PROVIDERS_PAGE} and sign in again, or run \`${provider.loginCommand}\`.`
-        : `Your Codex sign-in expired. Open ${PROVIDERS_PAGE} and sign in again.`;
+      return `Your Codex sign-in expired. Run \`${provider.loginCommand ?? 'codex'}\` in a terminal, then reload.`;
     case 'unsupported_version':
       return `The Codex CLI is ${provider.installedVersion ?? 'older than'} the supported version`
         + `${provider.minimumSupportedVersion ? ` ${provider.minimumSupportedVersion}` : ''}. Update it in ${PROVIDERS_PAGE}.`;

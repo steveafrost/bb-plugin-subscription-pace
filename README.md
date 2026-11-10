@@ -58,14 +58,21 @@ Three consequences worth knowing:
 - **OpenCode's percentage has no dollar limit behind it that the plugin can see.** The usage
   endpoint reports three windows and no model, while the docs define each window as a share of a
   *per-model* monthly dollar limit ($15–$100 depending on model). The plugin therefore holds no
-  default allowance for this slot and prints no dollars for it — enter your model's limit in
-  settings and the row estimates the spend from the provider's percentage, marked `≈` because
-  the provider never sent a dollar figure. The alternative was the subscription price ($10)
-  standing in for the limit, which is how "$7.30 left" once appeared on a plan with $73 left.
+  default allowance for this slot and prints no dollars for it. The alternative was the
+  subscription price ($10) standing in for the limit, which is how "$7.30 left" once appeared on
+  a plan with $73 left.
+- **The weekly window drives the headline, and it is not a share of the monthly allowance.** The
+  row reads `weekly`, falls back to `monthly` if the endpoint stops publishing it, and never
+  treats `rolling` as a headline: a five-hour sub-window says nothing about a week or a month.
+  This is why entering a monthly limit no longer produces a `≈` dollar estimate — a weekly
+  percentage times a monthly limit is wrong by the ratio between the windows, so the row shows
+  the share alone. Each percentage is of **its own** cap, not of the monthly one: live readings
+  showed `weekly 36` beside `monthly 32`, which is only possible if the two are measured against
+  different denominators.
 - **The three windows are nested, not parallel.** Per OpenCode's docs the 5-hour cap is 20% of the
-  monthly limit and the weekly cap 50%. The row draws each one against its own cap — "9 of 20",
-  not "rolling 9%" — because three percentages side by side read as three independent meters when
-  the monthly figure already contains the other two.
+  monthly limit and the weekly cap 50%, so the monthly figure already contains the other two. The
+  row draws each one against its own cap — "9 of 20", not "rolling 9%" — because three
+  percentages side by side read as three independent meters.
 - **A provider's `resetsAt` beats the configured renewal day.** OpenCode's month resets on
   `2026-12-06T14:22Z` for this account, which no configured day-of-month could have guessed.
 

@@ -25,13 +25,13 @@ const state = (over: Partial<ProviderState> = {}): ProviderState => ({
 });
 
 describe('readCodexUsage setup hints', () => {
-  it('names the Providers page when the CLI is not installed', () => {
+  it('names the CLI download page when it is not installed', () => {
     const result = readCodexUsage(undefined, TODAY, state({ status: 'not_installed' }));
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe('unavailable');
     expect(result.hint).toContain('not installed');
-    expect(result.hint).toContain('Settings → Providers');
+    expect(result.hint).toContain('https://developers.openai.com/codex/cli');
   });
 
   it('names sign-in, not installation, when the CLI is signed out', () => {
@@ -42,6 +42,12 @@ describe('readCodexUsage setup hints', () => {
     // The distinguishing claim: a signed-out provider must not send the user to
     // install something that is already there.
     expect(result.hint).not.toContain('not installed');
+    // And it must not send them to the Providers page to sign in. That page
+    // reports the state and offers no control for it; BB's own copy says to run
+    // the CLI. A hint that names a button which does not exist is worse than
+    // one that names none.
+    expect(result.hint).not.toContain('Providers and sign in');
+    expect(result.hint).toContain('terminal');
   });
 
   it('distinguishes an expired sign-in from a missing one', () => {
@@ -79,8 +85,10 @@ describe('readCodexUsage setup hints', () => {
     const result = readCodexUsage(undefined, TODAY, null);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    // Still actionable: the page it names is the one that fixes every branch.
+    // Still actionable, and split the way the fix actually is: enable the
+    // provider on the settings page, install and sign in from a terminal.
     expect(result.hint).toContain('Settings → Providers');
+    expect(result.hint).toContain('terminal');
   });
 
   it('does not claim a credential was rejected when the provider is absent', () => {

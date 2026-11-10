@@ -44,16 +44,28 @@ export function createSampleStore(db: Database) {
       day TEXT NOT NULL,
       percent REAL NOT NULL,
       sampled_at INTEGER NOT NULL,
+      window TEXT,
       PRIMARY KEY (day)
     )
   `);
+  // Added after the table first shipped. Each percentage is a share of its own
+  // window's cap, so a monthly 19 and a weekly 36 are not the same quantity and
+  // must not be drawn on one line. Existing rows keep a null window and are
+  // excluded by the read below, which is the correct outcome: they were
+  // recorded in units this build no longer plots.
+  const columns = db.prepare('PRAGMA table_info(opencode_samples)').all() as { name: string }[];
+  if (!columns.some(column => column.name === 'window')) {
+    db.exec('ALTER TABLE opencode_samples ADD COLUMN window TEXT');
+  }
 
   const insert = db.prepare(
-    'INSERT OR IGNORE INTO opencode_samples (day, percent, sampled_at) VALUES (?, ?, ?)',
+    'INSERT OR IGNORE INTO opencode_samples (day, percent, sampled_at, window) VALUES (?, ?, ?, ?)',
   );
   const prune = db.prepare('DELETE FROM opencode_samples WHERE day < ?');
+  // `window IS ?` rather than `= ?` so a null window compares null-safe; the
+  // caller always passes the window it is about to record under.
   const select = db.prepare(
-    'SELECT day, percent FROM opencode_samples WHERE day >= ? ORDER BY day ASC',
+    'SELECT day, percent FROM opencode_samples WHERE day >= ? AND window IS ? ORDER BY day ASC',
   );
 
   return {
@@ -63,15 +75,21 @@ export function createSampleStore(db: Database) {
      * `INSERT OR IGNORE` is what makes the first reading of a day the one that
      * counts — a second call the same day is a no-op rather than an overwrite.
      */
-    observe(day: string, percent: number, sampledAt: number, since: string): Sample[] {
-      if (!Number.isFinite(percent) || percent < 0) return this.read(since);
-      insert.run(day, percent, sampledAt);
+    observe(
+      day: string,
+      percent: number,
+      sampledAt: number,
+      since: string,
+      window: string,
+    ): Sample[] {
+      if (!Number.isFinite(percent) || percent < 0) return this.read(since, window);
+      insert.run(day, percent, sampledAt, window);
       prune.run(since);
-      return this.read(since);
+      return this.read(since, window);
     },
 
-    read(since: string): Sample[] {
-      return select.all(since) as Sample[];
+    read(since: string, window: string): Sample[] {
+      return select.all(since, window) as Sample[];
     },
 
     /** Forget a finished period so its samples cannot join the next one. */

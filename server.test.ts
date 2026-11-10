@@ -18,6 +18,7 @@ const slot: SlotSnapshot = {
   allowanceUsd: 80,
   allowanceEntered: false,
   periodWindow: null,
+  percentOfAllowance: true,
   usedPercent: 97,
   spentUsd: 77.64,
   remainingUsd: 2.36,

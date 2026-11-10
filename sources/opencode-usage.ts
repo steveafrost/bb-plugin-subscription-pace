@@ -13,10 +13,16 @@ export type { SourceResult } from './types.js';
  *       "weekly":  { "status": "ok", "percent": 7,  "resetsAt": "2026-11-16T00:00:00Z" },
  *       "monthly": { "status": "ok", "percent": 17, "resetsAt": "2026-12-06T14:22:07Z" } } }
  *
- * The monthly window is the one that maps onto an allowance, so it drives the
- * headline. It is also the answer to a question this plugin previously guessed
- * at: the month does not reset on the 1st, and the real date is different for
- * every subscriber, so `resetsAt` is used as given rather than reconstructed.
+ * The weekly window drives the headline. The monthly figure was the headline
+ * until now, because it was assumed to be the one that maps onto a dollar
+ * allowance — but that allowance is a per-model limit this plugin cannot read,
+ * so the monthly reading could only ever be printed as a percentage of a number
+ * nobody has. The weekly window needs no allowance at all, and it is the window
+ * that actually changes fast enough for the panel to be worth glancing at.
+ *
+ * Whichever window drives, its `resetsAt` is used as given rather than
+ * reconstructed: the month does not reset on the 1st, and the real date differs
+ * for every subscriber.
  *
  * Auth is asymmetric and undocumented: `Authorization: Bearer` works on
  * `/usage` while `X-Api-Key` (which `/models` accepts) returns 401 there. The
@@ -55,13 +61,49 @@ const asWindow = (value: unknown): { percent: number; resetsAt: string | null; s
   };
 };
 
+/**
+ * Keys to try, in order: the one in settings first, then any the machine holds.
+ *
+ * OpenCode writes its own credential to `auth.json`, and a machine that is
+ * signed in there should not need the same key pasted into settings a second
+ * time. But that file's key is *not* interchangeable with the `oc_s_` key the
+ * usage endpoint accepts — measured on this machine, the stored `sk-h...` value
+ * returns 401 from `/zen/go/v1/usage` under bearer, raw, and `x-api-key` alike,
+ * while it does answer `/zen/go/v1/models`. So the discovered key is a fallback
+ * and never a replacement: it is tried only after the configured key fails, and
+ * a failure from it is not allowed to overwrite a reading the configured key
+ * could have produced.
+ */
+export type KeyCandidate = { key: string; origin: 'settings' | 'auth.json' };
+
 export async function readOpencodeUsage(
-  args: { key: string },
+  args: { key: string; fallbackKeys?: string[] },
   request: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<SourceResult> {
-  const key = args.key.trim();
-  if (!key) return { ok: false, reason: 'unauthenticated' };
+  // Deduplicated so a fallback identical to the configured key is not requested
+  // twice, and ordered so the configured key always answers first.
+  const candidates = [...new Set([args.key.trim(), ...(args.fallbackKeys ?? [])])]
+    .filter(candidate => candidate.length > 0);
+  if (candidates.length === 0) return { ok: false, reason: 'unauthenticated' };
+
+  // The FIRST failure is the one reported. "Your key was rejected" tells the
+  // user what to fix; "unavailable" from a discovered key they never entered
+  // would hide that behind a message they cannot act on.
+  let failure: SourceResult | null = null;
+  for (const key of candidates) {
+    const attempt = await attemptUsage(key, request, signal);
+    if (attempt.ok) return attempt;
+    failure ??= attempt;
+  }
+  return failure ?? { ok: false, reason: 'unauthenticated' };
+}
+
+async function attemptUsage(
+  key: string,
+  request: typeof fetch,
+  signal: AbortSignal | undefined,
+): Promise<SourceResult> {
   try {
     const response = await request(USAGE, {
       headers: {
@@ -86,8 +128,14 @@ export async function readOpencodeUsage(
     const usage = body.usage;
     if (!usage || typeof usage !== 'object') return { ok: false, reason: 'unavailable' };
 
-    const monthly = asWindow(usage.monthly);
-    if (!monthly) return { ok: false, reason: 'unavailable' };
+    // Weekly, not monthly. A missing weekly window falls back to the monthly
+    // reading rather than failing, but `rolling` is deliberately not in the
+    // chain: it is a five-hour sub-window and says nothing about a week or a
+    // month, so making it the headline would answer a question nobody asked.
+    const chosen = (['weekly', 'monthly'] as const)
+      .map(name => ({ name, window: asWindow(usage[name]) }))
+      .find(candidate => candidate.window !== null);
+    if (!chosen || !chosen.window) return { ok: false, reason: 'unavailable' };
 
     // The window names come from the provider, and each one reaches the slot
     // row's caption, so both the count and the length of a name are capped: the
@@ -104,12 +152,21 @@ export async function readOpencodeUsage(
       .filter((window): window is { key: string; percent: number; resetsAt: string | null } => window !== null);
 
     const measure: Measure = {
-      usedPercent: monthly.percent,
-      periodWindow: 'monthly',
+      usedPercent: chosen.window.percent,
+      periodWindow: chosen.name,
       // The endpoint reports a share of the plan, never a dollar figure.
       spentUsd: null,
       daily: [],
-      resetsAt: monthly.resetsAt,
+      resetsAt: chosen.window.resetsAt,
+      // The weekly window runs seven days. Without this the period is rebuilt as
+      // a calendar month, so a quota that resets tomorrow is drawn against a
+      // span that began four weeks ago.
+      periodDays: chosen.name === 'weekly' ? 7 : null,
+      // A weekly share is a share of the *weekly* limit, which is not the
+      // monthly figure the user entered as this slot's allowance. Multiplying
+      // the two would print dollars that are wrong by the ratio between the
+      // windows, so the row must not derive a figure from this percentage.
+      percentOfAllowance: chosen.name === 'monthly',
       // A live percentage cannot be stale: it is the provider's own current
       // reading, unlike a local database that stops being written to.
       lastActivity: null,

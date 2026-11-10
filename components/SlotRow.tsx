@@ -146,7 +146,13 @@ export function SlotRow({ slot }: { slot: SlotSnapshot }) {
                 // Codex's nominal $20 stands in for a ChatGPT price it cannot
                 // read — so deriving from it would print arithmetic on an
                 // invented number in the same notation as a real one.
-                : slot.allowanceEntered && slot.usedPercent !== null
+                // ...and only when the percentage is a share of *that*
+                // allowance. OpenCode's headline is now its weekly window,
+                // while the figure in settings is the monthly limit; the two
+                // differ by the ratio between the windows, so deriving dollars
+                // from one with the other prints a number that is wrong and
+                // looks exactly as confident as a right one.
+                : slot.allowanceEntered && slot.percentOfAllowance && slot.usedPercent !== null
                   ? `${shareOf(slot.usedPercent, slot.allowanceUsd)} · derived from the ${percent(slot.usedPercent)} above`
                   : 'no dollar limit set'}
               {slot.remainingUsd === null ? null : ` · ${usd(slot.remainingUsd)} left`}

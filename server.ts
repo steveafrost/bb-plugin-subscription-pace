@@ -1,4 +1,7 @@
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { z } from 'zod';
 import { createCollector } from './collector.js';
@@ -26,6 +29,9 @@ const slotSchema = z.object({
   allowanceUsd: z.number().finite().nonnegative(),
   allowanceEntered: z.boolean(),
   periodWindow: z.string().nullable(),
+  // Declared or the RPC strips it, and the row would then derive dollars from a
+  // weekly percentage using a monthly allowance.
+  percentOfAllowance: z.boolean(),
   usedPercent: z.number().finite().nullable(),
   spentUsd: z.number().finite().nonnegative().nullable(),
   remainingUsd: z.number().finite().nonnegative().nullable(),
@@ -223,6 +229,40 @@ function openHostDatabase(path: string, options: { readonly: boolean }) {
 }
 
 /**
+ * Reads the key OpenCode stored for itself, for use as a *fallback* only.
+ *
+ * A machine already signed in to OpenCode should not need the same credential
+ * pasted into settings as well. But the two are not interchangeable: on this
+ * machine the value in `auth.json` is an `sk-h...` gateway key that returns 401
+ * from the usage endpoint under every header tried, while the `oc_s...` key the
+ * endpoint wants is not written there at all. So this is offered as a candidate
+ * after the configured key fails, and never in place of it.
+ *
+ * Returns null for every failure — missing file, unreadable file, unexpected
+ * shape, no api-type entry. The caller cannot act on which one it was, and a
+ * thrown error here would take the whole slot down over an optional fallback.
+ */
+function readOpencodeAuthKeys(home: string): string[] {
+  try {
+    const path = join(home, '.local', 'share', 'opencode', 'auth.json');
+    if (!existsSync(path)) return [];
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    const keys: string[] = [];
+    for (const [id, entry] of Object.entries(parsed)) {
+      if (!id.startsWith('opencode')) continue;
+      if (!entry || typeof entry !== 'object') continue;
+      const value = (entry as { key?: unknown }).key;
+      // Only api-type entries carry a key; oauth entries hold an access token
+      // that the usage endpoint does not accept.
+      if (typeof value === 'string' && value.trim().length > 0) keys.push(value.trim());
+    }
+    return keys;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Asks BB's own Codex provider for the plan's usage.
  *
  * The plugin does not talk to OpenAI itself. `provider-codex` already holds the
@@ -336,6 +376,10 @@ export default function plugin(bb: BbPluginApi) {
       {
         gateway: asKey('gatewayApiKey'),
         opencode: asKey('opencodeApiKey'),
+        // Read fresh on every snapshot: signing in to OpenCode is a terminal
+        // action, so the plugin must not cache a "not signed in" verdict from
+        // before it happened.
+        opencodeFallbacks: readOpencodeAuthKeys(homedir()),
         codex,
         // Asked only when the quota did not answer: a working provider needs no
         // explanation, and the setup call is a second round trip.
