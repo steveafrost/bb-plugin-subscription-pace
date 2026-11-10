@@ -248,6 +248,27 @@ describe('OpenCode Go', () => {
     expect(opencode.ratePercentPerDay).toBeGreaterThan(0);
   });
 
+  it('ends the drawn line on the live reading, not on the first sample of the day', async () => {
+    // The store keeps the FIRST reading of a day, because the counter is
+    // cumulative and the last reading would make every day look like it ended
+    // mid-surge. But the live read is later and just as real, and the chart
+    // labels its own endpoint: leaving the stored 9% there printed "OpenCode Go
+    // 9%" on the chart beside a row reading 17% for the same subscription.
+    const store = createSampleStore(new Database(':memory:'));
+    // Two samples must survive, or the collector takes its single-point branch
+    // and the drawn series never passes through here at all.
+    store.observe('2026-11-06', 9, 0, '2026-11-06');
+    store.observe('2026-11-09', 9, 0, '2026-11-06');
+
+    const snapshot = await createCollector({ now, fetch: router({}), samples: store })
+      .measure(readSlots(slotValues()), keys);
+    const opencode = snapshot.slots[1]!;
+    expect(opencode.usedPercent).toBe(17);
+    // 11-06 was sampled at 9% and today's stored sample also says 9%, but the
+    // provider now reports 17% — so the drawn line must end at 17, not 9.
+    expect(opencode.daily.at(-1)!.percent).toBeCloseTo(17, 5);
+  });
+
   it('keeps the first reading of a day so the series cannot drift upward', async () => {
     const store = createSampleStore(new Database(':memory:'));
     store.observe('2026-11-09', 12, 0, '2026-11-06');
@@ -312,11 +333,26 @@ describe('a provider value that cannot be true', () => {
 });
 
 describe('combined view', () => {
-  it('weights the combined percentage by allowance instead of averaging', async () => {
+  it('counts subscriptions in trouble instead of averaging their percentages', async () => {
     const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
-    // Vercel is $80 at 100%, OpenCode $10 at 17%: 8170 / 90, not (100 + 17) / 2.
-    expect(snapshot.overall.weightedPercent).toBeCloseTo(90.78, 1);
+    // Vercel is spent out at 100%, OpenCode is at 17% with no projection, so one
+    // of the two needs attention. The old headline was a weighted mean — 90.78%
+    // here — which reported a number whose weight for OpenCode was the $10
+    // subscription price standing in for a per-model limit nobody can read.
     expect(snapshot.overall.readable).toBe(2);
+    expect(snapshot.overall.attention).toBe(1);
+    expect(snapshot.overall.closest).toEqual({ index: 0, label: 'Vercel Token Pass' });
+  });
+
+  it('counts a slot that is on pace to run out even when it has not yet', async () => {
+    // This is the case a combined average could not express at all: 60% used is
+    // unremarkable until you know it happened in three days.
+    const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
+    const opencode = snapshot.slots.find(slot => slot.kind === 'opencode-go')!;
+    expect(opencode.usedPercent).toBe(17);
+    expect(opencode.hitDay).toBeNull();
+    // Only Vercel qualifies, and it qualifies by being over rather than by pace.
+    expect(snapshot.overall.attention).toBe(1);
   });
   it('reads the plan percentage BB publishes, with no denominator to invent', async () => {
     // The provider reports how much of the plan is gone. That number needs no
@@ -380,20 +416,15 @@ describe('combined view', () => {
     expect(codex.status).toBe('unauthenticated');
     expect(codex.usedPercent).toBeNull();
   });
-  it('drops a slot with no percentage from the weighting', async () => {
-    // OpenCode cannot be read here, so its 17% contributes nothing and Vercel
-    // alone sets the figure. Leaving an unreadable slot in the denominator
-    // would drag the headline toward zero and read as "spent less".
+  it('does not count an unreadable slot as being in trouble', async () => {
+    // An unreadable slot has no percentage, so it cannot be over its limit. It
+    // also must not be counted as "fine": it simply drops out of both counts,
+    // and `readable` is what tells the reader it was not looked at.
     const snapshot = await collector(router({ usage: () => json({}, 500) }))
       .measure(readSlots(slotValues()), keys);
-    expect(snapshot.overall.weightedPercent).toBeCloseTo(100, 1);
     expect(snapshot.overall.readable).toBe(1);
-  });
-
-  it('withholds a dollar total when a readable slot reports only a percentage', async () => {
-    const snapshot = await collector(router({})).measure(readSlots(slotValues()), keys);
-    expect(snapshot.overall.spentUsd).toBeNull();
-    expect(snapshot.overall.allowanceUsd).toBeNull();
+    expect(snapshot.overall.attention).toBe(1);
+    expect(snapshot.slots[1]!.status).toBe('unavailable');
   });
 });
 

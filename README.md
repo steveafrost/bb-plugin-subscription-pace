@@ -1,7 +1,7 @@
 # Subscription Pace
 
 One panel for several AI subscription allowances: how much of each is used, whether it lasts
-to its reset, and the combined picture — in one chart with a filter per subscription.
+to its reset, and which of them needs attention — one chart with a filter per subscription.
 
 Five slots. **Vercel Token Pass** and **OpenCode Go** are fixed in slots 1 and 2; slots 3–5
 take any kind from the catalogue (Claude Pro/Max, ChatGPT/Codex, GitHub Copilot, Cursor,
@@ -18,13 +18,19 @@ usedPercent = spend / that subscription's own allowance × 100
 
 That is the only unit they share, and it is the chart's y-axis (fixed at 0–110% so the
 allowance rule stays visible whether a line is at 6% or at 100%). Dollars still appear where a
-provider publishes them: on the row, and in the headline subtotal when *every* readable slot
-reports dollars.
+provider publishes them — on the row, and only on the row.
 
-**Percentages are not summed.** The headline is the share of the total allowance used, weighted
-by each slot's allowance: a $10 plan at 100% next to a $200 plan at 0% is 4.8% consumed, not 50%.
-A plain mean would let the smallest plan dominate the headline, and a sum of dollars would
-silently drop OpenCode, which reports a percentage and no money.
+**There is no combined percentage.** There used to be: a mean of the per-slot percentages,
+weighted by each slot's allowance. It was removed because the weights are not all real.
+Weighting requires knowing what each allowance *is*, and OpenCode reports a percentage of a
+**per-model** monthly limit that it never names — $100 on DeepSeek V4.1 Flash, $15 on DeepSeek
+V4 Pro, different again per model. The same 27% reading is therefore $27 or $4.05 depending on
+which model you called, and any headline built on that weight inherits the error.
+
+What replaces it needs no weights: a **count of subscriptions in trouble**, where "in trouble"
+means over the limit *or* on pace to run out before the next reset. That second clause is the
+part a combined average could never express — 60% used is unremarkable until you learn it
+happened in three days.
 
 ## Where the numbers come from
 
@@ -49,6 +55,16 @@ Three consequences worth knowing:
 - **OpenCode publishes no history**, only a current percentage and the instant it resets. The
   plugin samples that percentage once a day and keeps the samples, so the line is a single marker
   on the first day and a real trend from the second. Nothing is interpolated between samples.
+- **OpenCode's percentage has no dollar limit behind it that the plugin can see.** The usage
+  endpoint reports three windows and no model, while the docs define each window as a share of a
+  *per-model* monthly dollar limit ($15–$100 depending on model). The plugin therefore holds no
+  default allowance for this slot and prints no dollars for it — enter your model's limit in
+  settings if you want the money figures back. The alternative was the subscription price ($10)
+  standing in for the limit, which is how "$7.30 left" once appeared on a plan with $73 left.
+- **The three windows are nested, not parallel.** Per OpenCode's docs the 5-hour cap is 20% of the
+  monthly limit and the weekly cap 50%. The row draws each one against its own cap — "9 of 20",
+  not "rolling 9%" — because three percentages side by side read as three independent meters when
+  the monthly figure already contains the other two.
 - **A provider's `resetsAt` beats the configured renewal day.** OpenCode's month resets on
   `2026-12-06T14:22Z` for this account, which no configured day-of-month could have guessed.
 
@@ -62,8 +78,8 @@ the plan's own number.
 
 That has one consequence worth stating: **the number is plan-authoritative, not derived.** No
 allowance is guessed, and no token count is converted into a percentage. The slot's allowance
-figure exists only to weight it against the dollar subscriptions in the headline; the row never
-prints it as money, because none was measured.
+figure is nominal and exists only so the slot can be described in the same unit as the others;
+the row never prints it as money, because none was measured.
 
 **Setup, and it is not zero-config.** The slot reads BB's Codex provider, so that provider has to
 be enabled and signed in:
@@ -100,7 +116,7 @@ projecting a hit day off six dead days.
 
 | Mark | Meaning |
 | --- | --- |
-| `Allowance used` | Share of the total allowance consumed, weighted by each slot's allowance. |
+| `In trouble` | How many readable subscriptions are over their limit or on pace to be before they reset. |
 | `Closest to its limit` | The slot with the highest used percent. |
 | `Resets Nov 20` | The provider's reset, when it publishes one, else the configured day. |
 | `A single dot` | That slot has one reading so far, so there is no trend to draw yet. |

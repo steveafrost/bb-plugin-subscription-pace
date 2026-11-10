@@ -54,9 +54,14 @@ const snapshotSchema = z.object({
   overall: z.object({
     readable: z.number().int().nonnegative(),
     configured: z.number().int().nonnegative(),
-    weightedPercent: z.number().finite().nullable(),
-    spentUsd: z.number().finite().nonnegative().nullable(),
-    allowanceUsd: z.number().finite().nonnegative().nullable(),
+    // Declared or the RPC strips it. `closest` carries the slot's own label so
+    // the panel can name it without a second lookup, and `index` so the chart's
+    // filter can highlight the same row.
+    attention: z.number().int().nonnegative(),
+    closest: z.object({
+      index: z.number().int().nonnegative(),
+      label: z.string(),
+    }).nullable(),
   }),
   observedAt: z.number().int().nonnegative().nullable(),
 }).strict();
@@ -166,12 +171,22 @@ export function slotFieldSpecs(values: SlotValues) {
         options: kindChoices(),
       });
     }
+    // A zero allowance is the one value that means "no dollar figure", so it is
+    // never advertised as a default: `$0` in a number field reads as a limit of
+    // zero rather than as "this provider does not publish dollars". OpenCode is
+    // the case — its percentage is of a per-model limit, so the plugin holds no
+    // figure until the user supplies their model's.
+    const known = allowanceMeta.allowanceUsd > 0;
     fields.push({
       key: `slot${n}Allowance`, kind: 'number',
       label: 'Allowance per period (USD)',
-      description: `Defaults to $${allowanceMeta.allowanceUsd}; set your plan's real figure.`,
+      description: known
+        ? `Defaults to $${allowanceMeta.allowanceUsd}; set your plan's real figure.`
+        : 'No default: this provider reports a percentage of a per-model limit, and does not say '
+          + "which model. Enter that model's monthly limit to see dollars; leave it blank to see "
+          + 'only the share.',
       value: typeof values[`slot${n}Allowance`] === 'number' ? values[`slot${n}Allowance`] as number : null,
-      placeholder: allowanceMeta.allowanceUsd,
+      placeholder: known ? allowanceMeta.allowanceUsd : 'not set',
     });
     fields.push({
       key: `slot${n}RenewalDay`, kind: 'number',

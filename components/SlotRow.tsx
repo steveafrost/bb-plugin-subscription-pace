@@ -63,6 +63,26 @@ function endsQuietly(slot: SlotSnapshot): boolean {
     && slot.lastSpendDay < slot.periodEnd;
 }
 
+/**
+ * The share of the monthly limit each sub-window is allowed.
+ *
+ * Published by OpenCode as "5-hour — 20% of the monthly limit; weekly — 50%;
+ * monthly — 100%". A window not in this table is drawn against 100, because a
+ * cap this file does not know is not one it should invent.
+ */
+const WINDOW_CAP: Record<string, number> = { rolling: 20, weekly: 50, monthly: 100 };
+
+/** Sub-windows a provider publishes beside the period limit, with their caps. */
+function windowsWithCaps(slot: SlotSnapshot): { key: string; percent: number; cap: number }[] {
+  return slot.windows
+    .filter(window => window.key !== 'monthly')
+    .map(window => ({
+      key: window.key,
+      percent: window.percent,
+      cap: WINDOW_CAP[window.key] ?? 100,
+    }));
+}
+
 export function SlotRow({ slot }: { slot: SlotSnapshot }) {
   const copy = paceCopy({
     hitDay: slot.hitDay,
@@ -113,11 +133,17 @@ export function SlotRow({ slot }: { slot: SlotSnapshot }) {
           </div>
           <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span className="tabular-nums">
-              {/* A plan that publishes only a percentage has no dollar figure
-                  to show, so the share is named instead of a spent amount. */}
-              {slot.spentUsd === null
-                ? `a share of ${usd(slot.allowanceUsd)}`
-                : `${spendOf(slot.spentUsd, slot.allowanceUsd)} spent`}
+              {/* Three cases, because there are three different truths. A plan
+                  that publishes dollars shows dollars. One that publishes only
+                  a percentage, but whose limit the user has supplied, shows the
+                  share of that limit. One whose limit is unknown — OpenCode,
+                  whose percentage is of a per-model limit it never names — shows
+                  no money at all: "$0.00" would read as a spent-out plan. */}
+              {slot.spentUsd !== null
+                ? `${spendOf(slot.spentUsd, slot.allowanceUsd)} spent`
+                : slot.allowanceUsd > 0
+                  ? `a share of ${usd(slot.allowanceUsd)}`
+                  : 'no dollar limit set'}
               {slot.remainingUsd === null ? null : ` · ${usd(slot.remainingUsd)} left`}
             </span>
             <span className={warn ? 'text-[var(--warning-text)]' : undefined}>
@@ -147,13 +173,31 @@ export function SlotRow({ slot }: { slot: SlotSnapshot }) {
               a flat tail here means the allowance ran out, not that usage slowed down.
             </p>
           ) : null}
-          {slot.windows.length > 1 ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {slot.windows
-                .filter(window => window.key !== 'monthly')
-                .map(window => `${window.key} ${window.percent}%`)
-                .join(' · ')}
-            </p>
+          {windowsWithCaps(slot).length > 0 ? (
+            // Each sub-window is drawn against its OWN cap, not against 100.
+            // OpenCode's windows are nested — the 5-hour cap is 20% of the
+            // monthly limit and the weekly cap 50% — so a 13% reading means
+            // 13 of 20 allowed, not 13% of the month. Printing "rolling 13%"
+            // beside a 27% monthly made three nested meters read as three
+            // independent ones.
+            <div className="mt-2 space-y-1">
+              {windowsWithCaps(slot).map(window => (
+                <div key={window.key} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="w-16 shrink-0 capitalize">{window.key}</span>
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      className={window.percent >= window.cap
+                        ? 'block h-full bg-[var(--warning)]'
+                        : 'block h-full bg-[var(--success)]'}
+                      style={{ width: `${Math.min(100, Math.max(0, window.percent / window.cap * 100))}%` }}
+                    />
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {Math.round(window.percent)} of {window.cap}
+                  </span>
+                </div>
+              ))}
+            </div>
           ) : null}
           {!stale && !carried && !endsQuietly(slot) && slot.hitDay === null && slot.status === 'ok' ? (
             <p className="mt-1 text-[11px] text-muted-foreground">

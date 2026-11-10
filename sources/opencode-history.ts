@@ -28,7 +28,6 @@
  */
 
 import type { Database } from 'better-sqlite3';
-import type { DayTotal } from '../ledger.js';
 
 export type Sample = { day: string; percent: number };
 
@@ -85,22 +84,17 @@ export function createSampleStore(db: Database) {
 export type SampleStore = ReturnType<typeof createSampleStore>;
 
 /**
- * Samples → the cumulative currency the collector already understands.
+ * Samples → the percent series the chart draws, with no dollar round-trip.
  *
- * The collector's `Measure.daily` is `DayTotal[]` and its percent graph divides
- * dollars by an allowance — but a sampled series is *already* a percentage, so
- * there is no dollar amount to divide. Rather than fake a dollar figure by
- * multiplying a percentage by the plan price (that invents spend the provider
- * never published), the series is expressed in the allowance unit itself: a
- * sample at 17% of a $10 plan is 0.17 * 10 = $1.70 of that plan's own
- * allowance. The chart then recovers exactly 17%, and rows that print dollars
- * print a figure that is genuinely the same number in the same unit.
+ * These used to be multiplied by the plan's allowance to look like a dollar
+ * series and then divided by the same allowance to recover the percentage. That
+ * was a no-op while the allowance was the $10 price and silently became a
+ * division by zero once the price stopped standing in for the per-model limit —
+ * the series collapsed to 0% and the trend vanished. The percentage is the thing
+ * the provider actually published, so it is carried as itself.
  */
-export function samplesToDaily(samples: Sample[], allowanceUsd: number): DayTotal[] {
-  return samples.map(sample => ({
-    day: sample.day,
-    usd: allowanceUsd > 0 ? sample.percent / 100 * allowanceUsd : 0,
-  }));
+export function samplesToPercent(samples: Sample[]): { day: string; percent: number }[] {
+  return samples.map(sample => ({ day: sample.day, percent: sample.percent }));
 }
 
 /** Day key `offset` days before `day`. */

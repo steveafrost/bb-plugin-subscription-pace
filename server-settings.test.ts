@@ -24,11 +24,24 @@ describe('locked slot defaults', () => {
     expect(spec.description).toContain('$80');
   });
 
-  it('advertises the OpenCode allowance the collector actually uses', () => {
+  it('advertises no dollar default for OpenCode, because there is no single one', () => {
+    // The endpoint reports a percentage of a limit set per model — $100 on
+    // DeepSeek V4.1 Flash, $15 on V4 Pro — and never names the model. Any
+    // default here is a guess, and the guess this field used to print ($10, the
+    // subscription price) reached the panel as "$7.30 left".
     const spec = field('slot2Allowance');
-    expect(KIND_META['opencode-go'].allowanceUsd).toBe(10);
-    expect(spec.placeholder).toBe(10);
-    expect(spec.description).toContain('$10');
+    expect(KIND_META['opencode-go'].allowanceUsd).toBe(0);
+    expect(spec.placeholder).toBe('not set');
+    expect(spec.description).not.toContain('$10');
+    expect(spec.description).toContain('per-model');
+  });
+
+  it('says why a zero allowance is not a limit of zero', () => {
+    // "$0" in a number field reads as "you have no allowance", which is the
+    // opposite of what an unset figure means.
+    const spec = field('slot2Allowance');
+    expect(spec.description).toContain('No default');
+    expect(spec.placeholder).not.toBe(0);
   });
 
   it('advertises the Vercel renewal day, not the free-slot default', () => {

@@ -1,12 +1,12 @@
 ---
 name: subscription-pace
-description: Read combined AI subscription spend pace across Vercel Token Pass, OpenCode Go and three configurable slots, the projected renewal-day percentage, or explain why a subscription shows no data. Use when asked about subscription usage, whether an allowance will run out, the pace or forecast for the current period, or how to set the plugin up.
+description: Read AI subscription spend pace across Vercel Token Pass, OpenCode Go and three configurable slots, which subscriptions are in trouble or projected to run out before they reset, or explain why one shows no data. Use when asked about subscription usage, whether an allowance will run out, the pace or forecast for the current period, or how to set the plugin up.
 ---
 
 # Subscription Pace
 
 One panel for several AI subscription allowances: how much of each is used, whether it lasts
-to its reset, and the combined picture — one chart, plus a filter per subscription.
+to its reset, and which needs attention — one chart, plus a filter per subscription.
 
 ## Reading the panel
 
@@ -15,11 +15,11 @@ on everything else: Vercel publishes dollars, OpenCode publishes percentages and
 That percent is the chart's y-axis, fixed at 0–110% so the allowance rule stays visible at any
 scale.
 
-- `Allowance used` — the share of the total allowance consumed, **weighted by each slot's
-  allowance**. A $10 plan at 100% beside a $200 plan at 0% is 4.8%, not 50%. Not a sum: a sum of
-  dollars would drop OpenCode entirely, and a plain mean would let the smallest plan dominate.
-- `$77.68 of $80.00 across 2 subscriptions` — shown only when every readable slot reports
-  dollars; otherwise the line says some report a percentage only.
+- `In trouble` — **there is no combined percentage, and do not invent one.** The count is how
+  many readable subscriptions are either over their limit or on pace to run out before they
+  reset. The weighted headline this replaced was removed because its weights were not all real:
+  OpenCode reports a percentage of a *per-model* monthly limit ($15–$100 by model) that it never
+  names, so its weight was a guess and the headline inherited the error.
 - `Closest to its limit` — the slot with the highest used percent.
 - `Resets Nov 20` — the provider's own reset when it publishes one, else the configured day.
 - `A single dot` — that provider reports a percentage but no history. Say so; do not describe
@@ -47,10 +47,11 @@ the figure was changed. Present the distinction rather than calling all of it "u
 1. `gatewayApiKey` — a Vercel **AI Gateway** key (`vck_…`, Vercel → AI Gateway → API Keys).
 2. `opencodeApiKey` — the OpenCode key (`oc_s…`, from the OpenCode console or `~/.pi/agent/auth.json`).
 3. Per slot, an allowance and a renewal day. Once a slot names a subscription they default to
-   that subscription's guess ($80 Token Pass on the Vercel team cycle's 20th, $10 OpenCode Go,
-   $100 Claude, $10 Copilot) — confirm them; they are guesses. Codex reports a bare percentage,
-   so its allowance is nominal: it only weights the slot in the headline and is never shown as
-   money.
+   that subscription's guess ($80 Token Pass on the Vercel team cycle's 20th, $100 Claude, $10
+   Copilot) — confirm them; they are guesses. **OpenCode Go has no default at all**: its
+   percentage is of a per-model limit the endpoint does not name, so leave the field blank to
+   see the share only, or enter your model's monthly limit to see dollars. Codex reports a bare
+   percentage too, so its allowance is nominal and never shown as money.
 4. Slots 3–5 choose a subscription. `Not tracked` is the off state — there is no separate
    enable switch on those slots. A slot left on `Not tracked` draws nothing and borrows no
    figures. Slots 1–2 are fixed and offer only an enable switch and a display name.
@@ -99,9 +100,12 @@ renewal day is configured rather than discovered.
   means the setup is incomplete without saying which part; that case names both.
   The response carries **no spend and no history**: windows only, so the chart is a single marker.
   A plan publishes a five-hour window and a weekly one; the slot reports the window whose reset
-  is furthest out (the one that runs out at renewal) and lists the rest beside it.
-  Because it reports a percentage and no dollars, the slot cannot contribute to a dollar total —
-  the headline falls back to percent-only, exactly as it does when OpenCode is the only reader.
+  is furthest out (the one that runs out at renewal) and draws the rest beneath it. Those are
+  **nested** — the 5-hour cap is 20% of the monthly limit, the weekly cap 50% — so each is shown
+  against its own cap ("9 of 20"), never as a bare percentage that would read as a share of the
+  month.
+  Because it reports a percentage and no dollars, the row prints the share and never a money
+  figure.
 
 ## When a subscription shows no data
 

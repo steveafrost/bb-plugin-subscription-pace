@@ -49,19 +49,21 @@ const slot = (over: Partial<SlotSnapshot> & { index: number }): SlotSnapshot => 
 
 const snapshot = (slots: SlotSnapshot[]): Snapshot => {
   const readable = slots.filter(s => s.status === 'ok');
-  const measured = readable.filter(s => s.usedPercent !== null && s.allowanceUsd > 0);
-  const allowanceTotal = measured.reduce((sum, s) => sum + s.allowanceUsd, 0);
-  const allDollars = readable.length > 0 && readable.every(s => s.spentUsd !== null);
+  // Mirrors collector.ts's `overall()`, including the distinction the panel
+  // depends on: "attention" is over-limit OR on pace to hit it, not just >=100.
+  const attention = readable.filter(s =>
+    s.usedPercent !== null && (s.usedPercent >= 100 || s.hitDay !== null)).length;
+  const worst = readable.reduce<SlotSnapshot | null>((best, s) =>
+    s.usedPercent === null
+      ? best
+      : best === null || s.usedPercent > (best.usedPercent ?? 0) ? s : best, null);
   return {
     slots,
     overall: {
       readable: readable.length,
       configured: slots.filter(s => s.status !== 'disabled').length,
-      weightedPercent: allowanceTotal > 0
-        ? measured.reduce((sum, s) => sum + (s.usedPercent ?? 0) * s.allowanceUsd, 0) / allowanceTotal
-        : null,
-      spentUsd: allDollars ? readable.reduce((sum, s) => sum + (s.spentUsd ?? 0), 0) : null,
-      allowanceUsd: allDollars ? readable.reduce((sum, s) => sum + s.allowanceUsd, 0) : null,
+      attention,
+      closest: worst === null ? null : { index: worst.index, label: worst.label },
     },
     observedAt: Date.parse('2026-11-09T12:00:00Z'),
   };
@@ -72,7 +74,9 @@ const opencode = slot({
   kind: 'opencode-go',
   label: 'OpenCode Go',
   source: 'opencode-usage',
-  allowanceUsd: 10,
+  // Zero: the plugin holds no dollar limit for OpenCode, because the endpoint
+  // reports a share of a per-model limit it never names.
+  allowanceUsd: 0,
   usedPercent: 17,
   spentUsd: null,
   remainingUsd: null,
@@ -99,12 +103,34 @@ const renderPanel = async (value: Snapshot) => {
 };
 
 describe('Subscription Pace panel', () => {
-  it('weighs the combined share by allowance rather than averaging it', async () => {
+  it('reports no combined percentage at all', async () => {
+    // The panel used to open with a weighted mean of the per-slot percentages.
+    // It is gone on purpose: the weight was each slot's allowance, and OpenCode's
+    // is a percentage of a per-model limit the plugin cannot read, so the
+    // headline was arithmetic on a guess. A count needs no weights.
     const view = await renderPanel(snapshot([slot({ index: 0 }), opencode]));
-    // $80 at 97% and $10 at 17% is 7930 / 90 = 88%, where a plain mean would
-    // say 57% — and contradict the dollar line underneath.
-    expect(await view.findByText('88%')).toBeTruthy();
-    expect(view.getByText(/Across 2 subscriptions · some report a percentage only/)).toBeTruthy();
+    expect(await view.findByText('In trouble')).toBeTruthy();
+    // 97% with no hitDay is not "in trouble" — it has not run out and is not
+    // projected to. The old headline would have read 88% and looked alarming.
+    expect(view.queryByText(/Allowance used/)).toBeNull();
+    expect(view.queryByText('88%')).toBeNull();
+    expect(view.queryByText(/Across 2 subscriptions/)).toBeNull();
+  });
+
+  it('counts a subscription that is on pace to run out, not just one already over', async () => {
+    // The point of the count over a percentage: 60% on day 3 of a 31-day period
+    // is worse than 95% on day 30, and a combined average cannot express that.
+    const burning = slot({ index: 0, usedPercent: 60, hitDay: '2026-11-15' });
+    const view = await renderPanel(snapshot([burning, opencode]));
+    const heading = (await view.findByText('In trouble')).parentElement!;
+    expect(within(heading).getByText('1')).toBeTruthy();
+    expect(view.getByText(/1 of 2 readable subscriptions needs attention/)).toBeTruthy();
+  });
+
+  it('says none are in trouble when none are', async () => {
+    const calm = slot({ index: 0, usedPercent: 40, hitDay: null });
+    const view = await renderPanel(snapshot([calm, opencode]));
+    expect(await view.findByText(/none in trouble/)).toBeTruthy();
   });
 
   it('says which tracked subscriptions are not on the chart', async () => {
@@ -133,10 +159,20 @@ describe('Subscription Pace panel', () => {
     expect(within(closest).getByText('Vercel Token Pass')).toBeTruthy();
   });
 
-  it('shows a dollar figure for Vercel and a share for OpenCode', async () => {
+  it('shows dollars where they were measured and none where they were not', async () => {
     const view = await renderPanel(snapshot([slot({ index: 0 }), opencode]));
     expect(await view.findByText(/77\.64 of \$80\.00 spent/)).toBeTruthy();
-    expect(view.getByText(/a share of \$10\.00/)).toBeTruthy();
+    // OpenCode's limit is a per-model figure the endpoint does not name, so the
+    // plugin holds none and prints none.
+    expect(view.getByText(/no dollar limit set/)).toBeTruthy();
+  });
+
+  it('shows a share of the limit once the user supplies one', async () => {
+    // The escape hatch: entering your model's monthly limit gets real dollars
+    // back, because now the denominator is something a person confirmed.
+    const known = slot({ ...opencode, allowanceUsd: 100 });
+    const view = await renderPanel(snapshot([slot({ index: 0 }), known]));
+    expect(await view.findByText(/a share of \$100\.00/)).toBeTruthy();
   });
 
   it('renders the live reset date OpenCode publishes', async () => {
@@ -144,9 +180,45 @@ describe('Subscription Pace panel', () => {
     expect(await view.findByText(/Resets Dec 6/)).toBeTruthy();
   });
 
-  it('lists the extra windows OpenCode reports', async () => {
+  it('draws each OpenCode sub-window against its own cap, not against 100', async () => {
+    // The windows are nested: a 5-hour cap is 20% of the monthly limit and a
+    // weekly cap 50%. "rolling 9%" beside "monthly 17%" read as three
+    // independent meters; "9 of 20" says the 9 is measured against its slice.
     const view = await renderPanel(snapshot([slot({ index: 0 }), opencode]));
-    expect(await view.findByText('rolling 9%')).toBeTruthy();
+    expect(await view.findByText('9 of 20')).toBeTruthy();
+  });
+
+  it('prints no dollar figure for a plan whose limit the plugin does not know', async () => {
+    // OpenCode reports a percentage of a per-model limit and never names the
+    // model, so the plugin holds no allowance for it. "a share of $0.00" — what
+    // a zero allowance rendered as — reads as a plan with nothing left, which is
+    // the opposite of the truth.
+    const view = await renderPanel(snapshot([slot({ index: 0 }), opencode]));
+    expect(await view.findByText(/no dollar limit set/)).toBeTruthy();
+    expect(view.queryByText(/\$0\.00/)).toBeNull();
+  });
+
+  it('marks a sub-window as spent once it reaches its own cap', async () => {
+    const maxed = slot({
+      index: 1,
+      kind: 'opencode-go',
+      label: 'OpenCode Go',
+      source: 'opencode-usage',
+      allowanceUsd: 0,
+      usedPercent: 40,
+      spentUsd: null,
+      remainingUsd: null,
+      ratePercentPerDay: null,
+      projectedPercent: 40,
+      windows: [
+        { key: 'rolling', percent: 20, resetsAt: null },
+        { key: 'monthly', percent: 40, resetsAt: null },
+      ],
+    });
+    const view = await renderPanel(snapshot([slot({ index: 0 }), maxed]));
+    const label = await view.findByText('20 of 20');
+    const bar = label.parentElement!.querySelector('span > span')!;
+    expect(bar.className).toContain('warning');
   });
 
   it('offers a filter button per readable subscription plus an all view', async () => {
@@ -233,14 +305,18 @@ describe('Subscription Pace panel', () => {
     expect(view.queryByText(/^Unchanged since/)).toBeNull();
   });
 
-  it('marks the headline as over the limit once the average passes 100', async () => {
+  it('marks the attention count as a warning once something is over', async () => {
     const view = await renderPanel(snapshot([
       slot({ index: 0, usedPercent: 120, hitDay: day(9), spentUsd: 96, remainingUsd: 0 }),
     ]));
-    // The headline and the row badge both read 120%; the headline is the big one.
-    const all = await view.findAllByText('120%');
-    const headline = all.find(node => node.className.includes('text-3xl'))!;
-    expect(headline.className).toContain('warning-text');
+    // The big number is now a count of subscriptions in trouble, not a percent.
+    const heading = (await view.findByText('In trouble')).parentElement!;
+    const count = within(heading).getByText('1');
+    expect(count.className).toContain('text-3xl');
+    expect(count.className).toContain('warning-text');
+    // The row still carries its own 120%, so nothing was lost by dropping the
+    // combined figure — the detail moved to where it belongs.
+    expect(view.getAllByText('120%').length).toBeGreaterThan(0);
   });
 
   it('renders a period label so the window in use is never a guess', async () => {

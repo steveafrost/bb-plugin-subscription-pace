@@ -39,11 +39,16 @@ export type Measure = {
   /** Extra limits a provider publishes beside the period one (rolling, weekly). */
   windows: { key: string; percent: number; resetsAt: string | null }[];
   /**
-   * Set when `daily` was built from our own samples of a live percentage rather
-   * than from a provider dollar series, so the collector plots it as-is instead
-   * of dividing dollars by an allowance.
+   * Our own observations of a live percentage, when the provider publishes no
+   * history at all.
+   *
+   * Separate from `daily` because the two are different units: `daily` is
+   * dollars the provider reported, this is the provider's own percentage. They
+   * cannot share a field without one being converted into the other, and the
+   * only conversion available multiplies by an allowance that, for OpenCode, is
+   * a per-model limit this plugin cannot read.
    */
-  resampled?: boolean;
+  samples?: { day: string; percent: number }[];
   /**
    * Set when a hand-entered figure is last period's number carried into this
    * one, holding that period's start. The value cannot distinguish it from a

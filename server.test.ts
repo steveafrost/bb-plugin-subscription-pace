@@ -40,9 +40,8 @@ const snapshot = {
   overall: {
     readable: 1,
     configured: 1,
-    weightedPercent: 97,
-    spentUsd: 77.64,
-    allowanceUsd: 80,
+    attention: 0,
+    closest: { index: 0, label: 'Vercel Token Pass' },
   },
   observedAt: 1_800_000_000_000,
 };

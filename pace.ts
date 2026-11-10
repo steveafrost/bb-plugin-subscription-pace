@@ -182,12 +182,6 @@ export function paceCopy(args: {
   };
 }
 
-/** The caption under the axis strip. */
-export function averagingCopy(ratePercentPerDay: number | null): string {
-  if (ratePercentPerDay === null) return 'Live reading — no daily history available';
-  return `Averaging ${ratePercentPerDay.toFixed(1)}% of the allowance a day`;
-}
-
 /** How long the measured part of the window is, in whole days. */
 export function windowDays(start: string, end: string): number {
   return Math.max(0, daysBetween(start, end));

@@ -159,11 +159,19 @@ export function CombinedChart({ slots }: { slots: SlotSnapshot[] }) {
   );
 }
 
-/** Which windows the provider published beside the period limit, if any. */
+/**
+ * Which windows the provider published beside the period limit, if any.
+ *
+ * Each is named against its own cap, matching the row's bars. A bare "rolling
+ * 8%" beside a 25% monthly line reads as an independent 8% of the month, when
+ * the rolling window is a 20% slice of it — so 8 of 20 is nearly full.
+ */
+const WINDOW_CAP: Record<string, number> = { rolling: 20, weekly: 50, monthly: 100 };
+
 function viz(slots: SlotSnapshot[]): string {
   const extras = slots.flatMap(slot => slot.windows
     .filter(window => window.key !== 'monthly')
-    .map(window => `${slot.label} ${window.key} ${Math.round(window.percent)}%`));
+    .map(window => `${slot.label} ${window.key} ${Math.round(window.percent)} of ${WINDOW_CAP[window.key] ?? 100}`));
   return extras.length > 0 ? ` Also now: ${extras.join(' · ')}.` : '';
 }
 

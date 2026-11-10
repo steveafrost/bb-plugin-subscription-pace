@@ -16,7 +16,7 @@ import type { Measure } from './sources/types.js';
 import {
   createSampleStore,
   daysBefore,
-  samplesToDaily,
+  samplesToPercent,
   SAMPLE_KEEP_DAYS,
   type SampleStore,
 } from './sources/opencode-history.js';
@@ -97,18 +97,19 @@ export type Overall = {
   readable: number;
   configured: number;
   /**
-   * Share of the total allowance consumed across readable slots.
+   * How many readable slots have run out or are on pace to before they renew.
    *
-   * Weighted by allowance, not a plain mean of the per-slot percentages: a $10
-   * plan at 100% next to a $200 plan at 0% is 4.8% of the allowance, not 50%.
-   * A plain mean would let the smallest plan dominate the headline, and it
-   * would contradict the dollar line printed underneath it — this figure times
-   * `allowanceUsd` equals `spentUsd` whenever both are known.
+   * This replaces a combined percentage. That figure was a weighted mean of
+   * per-slot percentages, weighted by each slot's allowance — and an allowance
+   * is only a real quantity when the provider reports dollars. OpenCode reports
+   * a percentage of a *per-model* limit that the plugin cannot see, so its
+   * weight was a guess and the headline inherited the error: the same 27% is
+   * $27 on a $100 model and $4.05 on a $15 one. A count of subscriptions in
+   * trouble needs no weights, so it cannot be wrong in that way.
    */
-  weightedPercent: number | null;
-  /** Summed dollars, only when every readable slot reports dollars. */
-  spentUsd: number | null;
-  allowanceUsd: number | null;
+  attention: number;
+  /** The slot closest to its limit, or null when none is readable. */
+  closest: { index: number; label: string } | null;
 };
 
 export type Snapshot = {
@@ -223,14 +224,19 @@ function percentSeries(
  * looked once a day", not a interpolation the source never published.
  */
 function percentSeriesRaw(
-  daily: DayTotal[],
+  samples: { day: string; percent: number }[],
   start: string,
   end: string,
-  allowanceUsd: number,
+  today: string,
+  livePercent: number | null,
 ): PercentPoint[] {
-  const byDay = new Map(
-    daily.map(entry => [entry.day, allowanceUsd > 0 ? entry.usd / allowanceUsd * 100 : 0]),
-  );
+  const byDay = new Map(samples.map(sample => [sample.day, sample.percent]));
+  // Today's stored sample is the *first* reading of the day — the store keeps it
+  // that way so a cumulative counter does not make every day look like it ended
+  // mid-surge. The live reading is later and equally real, so the drawn endpoint
+  // uses it. Without this the chart's own label read 25% beside a row saying 30%
+  // for the same subscription on the same screen.
+  if (livePercent !== null && Number.isFinite(livePercent)) byDay.set(today, livePercent);
   const total = Math.max(1, daysBetween(start, end));
   const points: PercentPoint[] = [];
   let carried = 0;
@@ -417,12 +423,11 @@ export function createCollector(options: {
       options.samples.clear(since);
       const series = options.samples.observe(today, measure.usedPercent, now(), since);
       if (series.length > 1) {
-        measure.daily = samplesToDaily(series, slot.allowanceUsd);
-        // The sampled points are already percentages of the plan, so the last
-        // one equals the live reading by construction; the collector must not
-        // run them through the dollar path that divides by the allowance and
-        // rescales to it.
-        measure.resampled = true;
+        // Kept as percentages, not converted to dollars and back. The provider
+        // publishes a share of a per-model limit this plugin cannot see, so any
+        // dollar figure derived from it would be invented — and the round-trip
+        // divided by that invented allowance, which zeroed the series.
+        measure.samples = samplesToPercent(series);
       }
     }
 
@@ -430,11 +435,12 @@ export function createCollector(options: {
     // a live percentage gets a single point, which the chart draws as a marker
     // rather than a line it cannot justify. A sampled series is already a
     // percentage, so it is drawn directly instead of being divided by dollars.
-    const daily = measure.daily.length > 0
-      ? measure.resampled
-        ? percentSeriesRaw(measure.daily, window.start, window.end, slot.allowanceUsd)
-        : percentSeries(measure.daily, window.start, window.end, slot.allowanceUsd, measure.usedPercent)
-      : [{ day: today, percent: measure.usedPercent }];
+    const samples = measure.samples ?? [];
+    const daily = samples.length > 0
+      ? percentSeriesRaw(samples, window.start, window.end, today, measure.usedPercent)
+      : measure.daily.length > 0
+        ? percentSeries(measure.daily, window.start, window.end, slot.allowanceUsd, measure.usedPercent)
+        : [{ day: today, percent: measure.usedPercent }];
 
     // Spend that stopped before the period end cannot be projected forward.
     // Token Pass reports nothing once the credit is gone, so a trailing rate
@@ -522,27 +528,21 @@ export function createCollector(options: {
     // status was an attempt, successful or not.
     const configured = slots.filter(slot => slot.status !== 'disabled').length;
     const readable = slots.filter(slot => slot.status === 'ok');
-    // Weight by allowance so the headline is "dollars spent over dollars
-    // available", which is what a reader assumes a combined percentage means.
-    // An allowance of zero would divide the whole figure by nothing, and a slot
-    // reporting no percentage has no spend to weigh, so both drop out.
-    const measured = readable.filter(slot =>
-      slot.usedPercent !== null && slot.allowanceUsd > 0);
-    const allowanceTotal = measured.reduce((sum, slot) => sum + slot.allowanceUsd, 0);
-    const allDollars = readable.length > 0 && readable.every(slot => slot.spentUsd !== null);
+    // "Attention" is deliberately not "over 100%". A slot at 60% on day 3 of a
+    // 31-day period is in more trouble than one at 95% on day 30, and the
+    // collector already knows the difference: `hitDay` is set when the trailing
+    // rate runs the allowance out before it renews.
+    const attention = readable.filter(slot =>
+      slot.usedPercent !== null && (slot.usedPercent >= 100 || slot.hitDay !== null)).length;
+    const worst = readable.reduce<SlotSnapshot | null>((best, slot) =>
+      slot.usedPercent === null
+        ? best
+        : best === null || slot.usedPercent > (best.usedPercent ?? 0) ? slot : best, null);
     return {
       readable: readable.length,
       configured,
-      weightedPercent: allowanceTotal > 0
-        ? measured.reduce((sum, slot) => sum + (slot.usedPercent ?? 0) * slot.allowanceUsd, 0)
-          / allowanceTotal
-        : null,
-      spentUsd: allDollars
-        ? readable.reduce((sum, slot) => sum + (slot.spentUsd ?? 0), 0)
-        : null,
-      allowanceUsd: allDollars
-        ? readable.reduce((sum, slot) => sum + slot.allowanceUsd, 0)
-        : null,
+      attention,
+      closest: worst === null ? null : { index: worst.index, label: worst.label },
     };
   }
 

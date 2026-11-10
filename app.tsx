@@ -5,7 +5,6 @@ import type { rpcContract } from './server.js';
 import type { SlotSnapshot, Snapshot } from './collector.js';
 import { CombinedChart } from './components/CombinedChart.js';
 import { SlotRow } from './components/SlotRow.js';
-import { averagingCopy, percent, usd } from './pace.js';
 
 function useSnapshot() {
   const rpc = useRpc<typeof rpcContract>();
@@ -48,7 +47,9 @@ function SetupSteps() {
     },
     {
       title: 'Check each allowance',
-      detail: 'Vercel Token Pass is $80 by default and OpenCode Go $10. The rest are placeholders — set the real figure.',
+      detail: 'Vercel Token Pass is $80 by default. OpenCode Go has no default: it reports a share '
+        + 'of a per-model limit, so enter that model\'s monthly limit if you want dollars. The rest '
+        + 'are placeholders — set the real figure.',
     },
     {
       title: 'Fill the three free slots',
@@ -104,7 +105,6 @@ function PacePage() {
   const unplotted = slots
     .filter(slot => slot.status !== 'disabled' && slot.usedPercent === null)
     .map(slot => `${slot.label} (${UNPLOTTED_REASON[slot.status] ?? 'nothing to plot'})`);
-  const over = overall !== null && overall.weightedPercent !== null && overall.weightedPercent >= 100;
 
   return (
     // min-h-0 is what lets this column shrink inside the host pane; without it a
@@ -118,7 +118,9 @@ function PacePage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {overall === null || overall.readable === 0
               ? 'Nothing readable yet.'
-              : `${overall.readable} of ${overall.configured} tracked subscriptions readable.`}
+              : overall.attention === 0
+                ? `${overall.readable} of ${overall.configured} tracked subscriptions readable, none in trouble.`
+                : `${overall.attention} of ${overall.readable} readable subscriptions ${overall.attention === 1 ? 'needs' : 'need'} attention.`}
           </p>
         </div>
         <button
@@ -150,29 +152,36 @@ function PacePage() {
 
       {overall !== null && overall.readable > 0 ? (
         <section className="rounded-lg border border-border p-4">
+          {/* No combined percentage. It used to sit here as a weighted mean of
+              per-slot percentages, weighted by allowance — but OpenCode reports
+              a percentage of a per-model limit the plugin cannot read, so its
+              weight was invented and the headline carried that error. What is
+              left is the one claim that needs no weights: how many are in
+              trouble, and which is closest to its limit. */}
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
+              {/* One fixed label: a heading that pluralises on its own value
+                  reads "Need attention / 0", and a zero state should not need
+                  grammar of its own. */}
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Allowance used
+                In trouble
               </p>
-              <p className={over
+              <p className={overall.attention > 0
                 ? 'text-3xl font-semibold tabular-nums text-[var(--warning-text)]'
                 : 'text-3xl font-semibold tabular-nums'}
               >
-                {overall.weightedPercent === null ? '—' : percent(overall.weightedPercent)}
+                {overall.attention}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {overall.spentUsd !== null && overall.allowanceUsd !== null
-                  ? `${usd(overall.spentUsd)} of ${usd(overall.allowanceUsd)} across ${overall.readable} subscriptions`
-                  : `Across ${overall.readable} subscriptions · some report a percentage only`}
+                {overall.attention === 0
+                  ? `None of ${overall.readable} readable subscriptions is out of allowance or on pace to be.`
+                  : `of ${overall.readable} readable. Each row below carries its own verdict.`}
               </p>
             </div>
             <div className="text-right">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Closest to its limit</p>
               <p className="text-2xl font-semibold tabular-nums">
-                {readable.length === 0
-                  ? '—'
-                  : readable.reduce((worst, slot) => ((slot.usedPercent ?? 0) > (worst.usedPercent ?? 0) ? slot : worst)).label}
+                {overall.closest === null ? '—' : overall.closest.label}
               </p>
             </div>
           </div>
@@ -190,11 +199,10 @@ function PacePage() {
           ) : null}
 
           <p className="mt-2 text-xs text-muted-foreground">
-            {averagingCopy(
-              readable.length === 1 ? readable[0]!.ratePercentPerDay : null,
-            )}
-            {' '}Lines share one calendar but not one allowance: each is a percentage of its own plan,
-            which is the only unit Vercel (dollars) and OpenCode (a percentage) can be compared in.
+            Each line is a percentage of its own plan, which is the only unit Vercel (dollars)
+            and OpenCode (a percentage) can be compared in. There is no combined total: the
+            two plans&rsquo; allowances are not the same kind of number, so weighting one
+            against the other would be arithmetic on a guess.
           </p>
         </section>
       ) : null}

@@ -75,11 +75,26 @@ export const KIND_META: Record<SubscriptionKind, KindMeta> = {
   'opencode-go': {
     label: 'OpenCode Go',
     source: 'opencode-usage',
-    allowanceUsd: 10,
+    /**
+     * Zero, and deliberately not the $10 subscription price.
+     *
+     * The endpoint reports a percentage of a limit that is set *per model* —
+     * $100 on DeepSeek V4.1 Flash, $15 on DeepSeek V4 Pro, and different again
+     * for every other model — and it reports no model, so the plugin cannot
+     * tell which limit the percentage is of. The $10 price that used to sit
+     * here was read as the allowance and printed as money: 27% showed as
+     * "$2.70 of $10.00, $7.30 left" when the truth was $27 of $100.
+     *
+     * Zero means "no dollar figure", so the row names the share instead of
+     * inventing a denominator. A user who knows their model's limit can enter
+     * it in settings and get real dollars back; nobody gets a wrong number by
+     * default.
+     */
+    allowanceUsd: 0,
     // The live `resetsAt` overrides this whenever the endpoint answers; the
     // real monthly reset is per-subscriber (observed 2026-12-06T14:22Z).
     renewalDay: 1,
-    measures: 'The monthly percentage the OpenCode usage endpoint reports for the plan.',
+    measures: 'The monthly percentage the usage endpoint reports, which is a share of a per-model dollar limit.',
   },
   claude: {
     label: 'Claude Pro / Max',
