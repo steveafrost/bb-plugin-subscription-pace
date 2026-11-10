@@ -1,5 +1,5 @@
 import type { SlotSnapshot } from '../collector.js';
-import { paceCopy, percent, shortDate, spendOf, usd } from '../pace.js';
+import { paceCopy, percent, shareOf, shortDate, spendOf, usd } from '../pace.js';
 
 /**
  * One subscription row.
@@ -136,13 +136,15 @@ export function SlotRow({ slot }: { slot: SlotSnapshot }) {
               {/* Three cases, because there are three different truths. A plan
                   that publishes dollars shows dollars. One that publishes only
                   a percentage, but whose limit the user has supplied, shows the
-                  share of that limit. One whose limit is unknown — OpenCode,
-                  whose percentage is of a per-model limit it never names — shows
-                  no money at all: "$0.00" would read as a spent-out plan. */}
+                  spend worked out from that limit — marked `≈` and attributed,
+                  because the provider never sent the figure. One whose limit is
+                  unknown — OpenCode, whose percentage is of a per-model limit it
+                  never names — shows no money at all: "$0.00" would read as a
+                  spent-out plan. */}
               {slot.spentUsd !== null
                 ? `${spendOf(slot.spentUsd, slot.allowanceUsd)} spent`
-                : slot.allowanceUsd > 0
-                  ? `a share of ${usd(slot.allowanceUsd)}`
+                : slot.allowanceUsd > 0 && slot.usedPercent !== null
+                  ? `${shareOf(slot.usedPercent, slot.allowanceUsd)} · derived from the ${percent(slot.usedPercent)} above`
                   : 'no dollar limit set'}
               {slot.remainingUsd === null ? null : ` · ${usd(slot.remainingUsd)} left`}
             </span>

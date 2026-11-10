@@ -50,8 +50,9 @@ the figure was changed. Present the distinction rather than calling all of it "u
    that subscription's guess ($80 Token Pass on the Vercel team cycle's 20th, $100 Claude, $10
    Copilot) — confirm them; they are guesses. **OpenCode Go has no default at all**: its
    percentage is of a per-model limit the endpoint does not name, so leave the field blank to
-   see the share only, or enter your model's monthly limit to see dollars. Codex reports a bare
-   percentage too, so its allowance is nominal and never shown as money.
+   see the share only, or enter your model's monthly limit and the row estimates the spend from
+   the provider's percentage (marked `≈`, because the provider never sent a dollar figure).
+   Codex reports a bare percentage too, so its allowance is nominal and never shown as money.
 4. Slots 3–5 choose a subscription. `Not tracked` is the off state — there is no separate
    enable switch on those slots. A slot left on `Not tracked` draws nothing and borrows no
    figures. Slots 1–2 are fixed and offer only an enable switch and a display name.

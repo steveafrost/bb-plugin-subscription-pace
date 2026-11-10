@@ -153,6 +153,18 @@ export const usd = (value: number): string =>
 export const spendOf = (spent: number, allowance: number): string =>
   `${usd(spent)} of ${usd(allowance)}`;
 
+/**
+ * Spend worked out from a percentage, for a plan that publishes no dollars.
+ *
+ * The `≈` and the trailing `derived from` are the point of this function. The
+ * provider never sent a dollar figure — this multiplies its percentage by a
+ * limit the user typed in — so the row must not print it the way it prints
+ * Vercel's measured spend. A reader who takes `$30.00` for a reported number
+ * would be trusting arithmetic the plugin guessed the denominator of.
+ */
+export const shareOf = (percentUsed: number, allowance: number): string =>
+  `≈ ${usd((percentUsed / 100) * allowance)} of ${usd(allowance)}`;
+
 
 /**
  * The headline verdict for one subscription, or for the combined view.

@@ -59,7 +59,8 @@ Three consequences worth knowing:
   endpoint reports three windows and no model, while the docs define each window as a share of a
   *per-model* monthly dollar limit ($15–$100 depending on model). The plugin therefore holds no
   default allowance for this slot and prints no dollars for it — enter your model's limit in
-  settings if you want the money figures back. The alternative was the subscription price ($10)
+  settings and the row estimates the spend from the provider's percentage, marked `≈` because
+  the provider never sent a dollar figure. The alternative was the subscription price ($10)
   standing in for the limit, which is how "$7.30 left" once appeared on a plan with $73 left.
 - **The three windows are nested, not parallel.** Per OpenCode's docs the 5-hour cap is 20% of the
   monthly limit and the weekly cap 50%. The row draws each one against its own cap — "9 of 20",

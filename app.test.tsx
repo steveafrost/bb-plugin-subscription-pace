@@ -167,12 +167,15 @@ describe('Subscription Pace panel', () => {
     expect(view.getByText(/no dollar limit set/)).toBeTruthy();
   });
 
-  it('shows a share of the limit once the user supplies one', async () => {
-    // The escape hatch: entering your model's monthly limit gets real dollars
-    // back, because now the denominator is something a person confirmed.
+  it('shows a derived spend, marked as derived, once the user supplies the limit', async () => {
+    // The escape hatch: entering your model's monthly limit turns the share into
+    // a dollar figure. It is arithmetic on a number the provider never sent, so
+    // the row marks it `≈` and says where it came from — printed bare it would
+    // look like Vercel's measured spend sitting two rows above it.
     const known = slot({ ...opencode, allowanceUsd: 100 });
     const view = await renderPanel(snapshot([slot({ index: 0 }), known]));
-    expect(await view.findByText(/a share of \$100\.00/)).toBeTruthy();
+    expect(await view.findByText(/≈ \$17\.00 of \$100\.00/)).toBeTruthy();
+    expect(view.getByText(/derived from the 17%/)).toBeTruthy();
   });
 
   it('renders the live reset date OpenCode publishes', async () => {

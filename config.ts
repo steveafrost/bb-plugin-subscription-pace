@@ -87,8 +87,9 @@ export const KIND_META: Record<SubscriptionKind, KindMeta> = {
      *
      * Zero means "no dollar figure", so the row names the share instead of
      * inventing a denominator. A user who knows their model's limit can enter
-     * it in settings and get real dollars back; nobody gets a wrong number by
-     * default.
+     * it in settings and the row then estimates the spend from the provider's
+     * percentage — marked `≈` and attributed, never printed as measured;
+     * nobody gets a wrong number by default.
      */
     allowanceUsd: 0,
     // The live `resetsAt` overrides this whenever the endpoint answers; the

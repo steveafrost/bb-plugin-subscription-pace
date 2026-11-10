@@ -183,8 +183,8 @@ export function slotFieldSpecs(values: SlotValues) {
       description: known
         ? `Defaults to $${allowanceMeta.allowanceUsd}; set your plan's real figure.`
         : 'No default: this provider reports a percentage of a per-model limit, and does not say '
-          + "which model. Enter that model's monthly limit to see dollars; leave it blank to see "
-          + 'only the share.',
+          + "which model. Enter that model's monthly limit to see an estimated spend worked out "
+          + 'from that percentage; leave it blank to see only the share.',
       value: typeof values[`slot${n}Allowance`] === 'number' ? values[`slot${n}Allowance`] as number : null,
       placeholder: known ? allowanceMeta.allowanceUsd : 'not set',
     });
