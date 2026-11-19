@@ -35,11 +35,19 @@ button.
 
 ## The five slots
 
-| Slot | Kind | Source |
-| --- | --- | --- |
-| 1 | Vercel Token Pass (fixed) | AI Gateway credits + per-day report |
-| 2 | OpenCode Go (fixed) | OpenCode's usage endpoint |
-| 3–5 | your choice from the catalogue | measured where the kind has an endpoint, else a figure you typed |
+Five slots, each naming its own kind. Nothing is fixed to a position: Vercel Token Pass can sit
+in slot 4 and OpenCode Go in slot 1, and either can be dropped by setting the slot back to
+`Not tracked`.
+
+| Kind | Source |
+| --- | --- |
+| Vercel Token Pass | AI Gateway credits + per-day report |
+| OpenCode Go | OpenCode's usage endpoint |
+| ChatGPT / Codex | BB's Codex provider quota |
+| everything else | a figure you typed |
+
+Measured kinds are the first three; the rest are not. Whatever the kind, a slot with no kind
+tracks nothing and borrows no figures.
 
 `AI Gateway balance` and `OpenCode usage endpoint` are measured. `Figure you entered` is not:
 that subscription has no readable usage endpoint, so the row is only as current as the last time
@@ -56,9 +64,9 @@ the figure was changed. Present the distinction rather than calling all of it "u
    drives the headline is measured against a different cap than the monthly one, so entering a
    monthly limit produces no dollar estimate — the row shows the share only.
    Codex reports a bare percentage too, so its allowance is nominal and never shown as money.
-4. Slots 3–5 choose a subscription. `Not tracked` is the off state — there is no separate
-   enable switch on those slots. A slot left on `Not tracked` draws nothing and borrows no
-   figures. Slots 1–2 are fixed and offer only an enable switch and a display name.
+4. Each slot chooses a subscription. `Not tracked` is the off state — there is no separate
+   enable switch anywhere, so a slot is tracking exactly when it names a kind. A slot left on
+   `Not tracked` draws nothing and borrows no figures.
 
 The slot fields live in the plugin's own store, not the host settings schema, and are edited on
 the plugin's settings page as one collapsible card per slot. Only `gatewayApiKey` and

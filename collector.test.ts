@@ -8,9 +8,17 @@ import { readSlots } from './config.js';
 const NOW = Date.parse('2026-11-09T12:00:00.000Z');
 const now = () => NOW;
 
+/**
+ * Five slots, each naming the subscription the suite tests it as.
+ *
+ * The fixtures used to set only `slotNEnabled`, because a locked slot knew its
+ * own kind from its position. Every slot now takes its kind from settings, so a
+ * test that wants Vercel Token Pass in slot 1 has to say so, exactly as a user
+ * would.
+ */
 const slotValues = (over: Record<string, unknown> = {}) => ({
-  slot1Enabled: true,
-  slot2Enabled: true,
+  slot1Kind: 'vercel-token-pass',
+  slot2Kind: 'opencode-go',
   ...over,
 });
 
@@ -604,9 +612,12 @@ describe('combined view', () => {
 });
 
 describe('slots', () => {
-  it('leaves a disabled slot out of the totals but keeps its row', async () => {
+  it('leaves an untracked slot out of the totals but keeps its row', async () => {
+    // Untracking is now the only off switch: the slot names no subscription
+    // rather than carrying a separate flag beside it, so there is no state where
+    // "off" and "tracks OpenCode" can disagree.
     const snapshot = await collector(router({}))
-      .measure(readSlots(slotValues({ slot2Enabled: false })), keys);
+      .measure(readSlots(slotValues({ slot2Kind: 'none' })), keys);
     expect(snapshot.slots[1]!.status).toBe('disabled');
     expect(snapshot.overall.readable).toBe(1);
     expect(snapshot.overall.configured).toBe(1);
@@ -614,9 +625,21 @@ describe('slots', () => {
 
   it('does not call any endpoint for a slot that is off', async () => {
     const spy = router({});
-    await collector(spy).measure(readSlots(slotValues({ slot2Enabled: false })), keys);
+    await collector(spy).measure(readSlots(slotValues({ slot2Kind: 'none' })), keys);
     const urls = (spy as unknown as { mock: { calls: [string][] } }).mock.calls.map(([url]) => url);
     expect(urls.some(url => url.includes('/v1/usage'))).toBe(false);
+  });
+
+  it('tracks whichever subscription a slot names, in any slot', async () => {
+    // The point of the change: Vercel Token Pass in slot 3 and OpenCode in slot
+    // 1 must read exactly as they did in slots 1 and 2, because a slot is a
+    // position now and nothing else.
+    const snapshot = await collector(router({}))
+      .measure(readSlots({ slot1Kind: 'opencode-go', slot3Kind: 'vercel-token-pass' }), keys);
+    expect(snapshot.slots[0]!.source).toBe('opencode-usage');
+    expect(snapshot.slots[0]!.status).toBe('ok');
+    expect(snapshot.slots[2]!.source).toBe('vercel-gateway');
+    expect(snapshot.slots[2]!.status).toBe('ok');
   });
 
   it('reads a manual slot as a share of its own allowance', async () => {

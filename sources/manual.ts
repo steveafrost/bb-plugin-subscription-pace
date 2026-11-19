@@ -6,11 +6,11 @@ export type { SourceResult } from './types.js';
 /**
  * Spend the user typed in.
  *
- * The free slots exist so the panel can be honest about subscriptions it cannot
- * measure. Rather than inventing a number, a manual slot takes a total for the
- * current period and the day it was true, and the series is a straight line
- * from the period start to that point — which is all anyone can honestly know
- * from one figure.
+ * The unmeasured kinds exist so the panel can be honest about subscriptions it
+ * cannot measure. Rather than inventing a number, a manual slot takes a total
+ * for the current period and the day it was true, and the series is a straight
+ * line from the period start to that point — which is all anyone can honestly
+ * know from one figure.
  *
  * There is one rejection reason: `unentered`, meaning the slot has no figure at
  * all and the settings need a number. Every other figure is measured — refusing

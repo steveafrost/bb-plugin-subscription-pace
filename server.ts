@@ -12,7 +12,7 @@ import { createSampleStore } from './sources/opencode-history.js';
 import { createStampStore } from './sources/manual-stamp.js';
 import { createSlotStore, kindChoices, type SlotValues } from './slots-store.js';
 import {
-  CATALOG, FIXED_KIND, FREE_KIND_OPTIONS, KIND_META, NO_KIND, SLOT_COUNT, isFreeKind, readSlots,
+  KIND_META, NO_KIND, SLOT_COUNT, isChosenKind, readSlots,
 } from './config.js';
 
 /** The subset of `providerStates()` this plugin reads, named so it stays checkable. */
@@ -85,8 +85,6 @@ export const rpcContract = defineRpcContract({
     output: z.object({
       slots: z.array(z.object({
         index: z.number().int().nonnegative(),
-        /** Fixed subscriptions cannot be re-picked; free slots can. */
-        locked: z.boolean(),
         fields: z.array(z.object({
           key: z.string(),
           kind: z.enum(['boolean', 'number', 'select', 'text']),
@@ -107,15 +105,6 @@ export const rpcContract = defineRpcContract({
   },
 });
 
-const KIND_OPTIONS = CATALOG.map(kind => kind);
-const KIND_LABELS = Object.fromEntries(CATALOG.map(kind => [kind, KIND_META[kind].label]));
-const FREE_KIND_OPTION_VALUES = FREE_KIND_OPTIONS.map(kind => kind);
-// The off state reads as a choice, not as an empty field: an unlabelled option
-// would show the raw `none` beside every subscription name.
-const FREE_KIND_LABELS: Record<string, string> = {
-  ...KIND_LABELS,
-  [NO_KIND]: 'Not tracked',
-};
 
 /**
  * The slot fields, described for the settings page's own layout.
@@ -125,7 +114,14 @@ const FREE_KIND_LABELS: Record<string, string> = {
  * is what made the page unreadable. The same metadata is served as data so the
  * page can show one collapsible card per slot instead.
  */
-/** Exported for the test that pins each locked slot's advertised default. */
+/**
+ * Exported for the test that pins each kind's advertised default.
+ *
+ * Every slot is laid out the same way now, so the five fields below are the same
+ * five for all of them: what the slot tracks, what to call it, and the three
+ * figures the plugin cannot read from a provider. Nothing here is fixed to a
+ * subscription, which is what lets a provider be chosen and dropped freely.
+ */
 export function slotFieldSpecs(values: SlotValues) {
   const fields: {
     key: string; kind: 'boolean' | 'number' | 'select' | 'text';
@@ -136,43 +132,30 @@ export function slotFieldSpecs(values: SlotValues) {
   }[] = [];
   for (let index = 0; index < SLOT_COUNT; index++) {
     const n = index + 1;
-    const locked = FIXED_KIND[index];
-    const meta = KIND_META[locked ?? 'manual'];
     const chosen = typeof values[`slot${n}Kind`] === 'string' ? values[`slot${n}Kind`] as string : NO_KIND;
-    const shown = KIND_META[(isFreeKind(chosen) ? chosen : 'manual') as keyof typeof KIND_META];
-    // A locked slot is not "manual": its allowance default is the one the
-    // collector will actually use. Reading it from `shown` advertised $20 for
-    // both locked slots while the collector used $80 and $10 — a user trusting
-    // the field would have re-entered a figure the collector never used, and
-    // nothing would have said so.
-    const allowanceMeta = locked ? meta : shown;
-    if (locked) {
-      fields.push({
-        key: `slot${n}Enabled`, kind: 'boolean',
-        label: `Track ${meta.label}`,
-        description: 'On by default: one of the two subscriptions this plugin was built for.',
-        value: typeof values[`slot${n}Enabled`] === 'boolean' ? values[`slot${n}Enabled`] as boolean : null,
-        placeholder: 'on',
-      });
-      fields.push({
-        key: `slot${n}Label`, kind: 'text',
-        label: 'Display name',
-        description: `Optional. Defaults to ${meta.label}.`,
-        value: typeof values[`slot${n}Label`] === 'string' && (values[`slot${n}Label`] as string).trim()
-          ? values[`slot${n}Label`] as string
-          : null,
-        placeholder: meta.label,
-      });
-    } else {
-      fields.push({
-        key: `slot${n}Kind`, kind: 'select',
-        label: 'Subscription',
-        description: 'Leave on “Not tracked” unless you want this slot filled.',
-        value: isFreeKind(chosen) || chosen === NO_KIND ? chosen : null,
-        placeholder: NO_KIND,
-        options: kindChoices(),
-      });
-    }
+    // The kind decides the allowance default, because it decides which figure
+    // the collector will actually use. Reading the default from anywhere else
+    // advertised $20 for Vercel Token Pass while the collector used $80 — a user
+    // trusting the field would have re-entered a figure the collector never
+    // used, and nothing would have said so.
+    const allowanceMeta = KIND_META[(isChosenKind(chosen) ? chosen : 'manual') as keyof typeof KIND_META];
+    fields.push({
+      key: `slot${n}Kind`, kind: 'select',
+      label: 'Subscription',
+      description: 'Leave on “Not tracked” unless you want this slot filled.',
+      value: isChosenKind(chosen) || chosen === NO_KIND ? chosen : null,
+      placeholder: NO_KIND,
+      options: kindChoices(),
+    });
+    fields.push({
+      key: `slot${n}Label`, kind: 'text',
+      label: 'Display name',
+      description: `Optional. Defaults to ${allowanceMeta.label}.`,
+      value: typeof values[`slot${n}Label`] === 'string' && (values[`slot${n}Label`] as string).trim()
+        ? values[`slot${n}Label`] as string
+        : null,
+      placeholder: allowanceMeta.label,
+    });
     // A zero allowance is the one value that means "no dollar figure", so it is
     // never advertised as a default: `$0` in a number field reads as a limit of
     // zero rather than as "this provider does not publish dollars". OpenCode is
@@ -213,15 +196,13 @@ export function slotFieldSpecs(values: SlotValues) {
       value: typeof values[`slot${n}RenewalDay`] === 'number' ? values[`slot${n}RenewalDay`] as number : null,
       placeholder: allowanceMeta.renewalDay,
     });
-    if (!locked) {
-      fields.push({
-        key: `slot${n}ManualSpend`, kind: 'number',
-        label: 'Spend so far this period (USD)',
-        description: 'One number per period, for a plan that publishes no readable usage. The plugin dates it the day you change it.',
-        value: typeof values[`slot${n}ManualSpend`] === 'number' ? values[`slot${n}ManualSpend`] as number : null,
-        placeholder: 'not entered',
-      });
-    }
+    fields.push({
+      key: `slot${n}ManualSpend`, kind: 'number',
+      label: 'Spend so far this period (USD)',
+      description: 'One number per period, for a plan that publishes no readable usage. The plugin dates it the day you change it.',
+      value: typeof values[`slot${n}ManualSpend`] === 'number' ? values[`slot${n}ManualSpend`] as number : null,
+      placeholder: 'not entered',
+    });
   }
   return fields;
 }
@@ -430,7 +411,6 @@ export default function plugin(bb: BbPluginApi) {
       return {
         slots: Array.from({ length: SLOT_COUNT }, (_, index) => ({
           index,
-          locked: FIXED_KIND[index] !== undefined,
           fields: byIndex.get(index) ?? [],
         })),
       };

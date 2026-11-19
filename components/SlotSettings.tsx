@@ -125,13 +125,18 @@ export function SlotSettingsSection() {
   return (
     <div className="space-y-2">
       {data.slots.map(slot => {
-        const title = slot.fields.find(field => field.key.endsWith('Kind'))
-          ?? slot.fields.find(field => field.key.endsWith('Label'));
-        const selected = draft[title?.key ?? ''] ?? title?.value ?? title?.placeholder ?? '';
-        const choice = title?.options?.find(option => option.value === selected);
-        const name = slot.index < 2
-          ? (slot.fields.find(field => field.key.endsWith('Label'))?.placeholder ?? `Slot ${slot.index + 1}`)
-          : (choice?.label ?? String(selected) ?? `Slot ${slot.index + 1}`);
+        // Every slot is picked the same way, so the summary line is the same
+        // question for all five: which subscription, then what it was called.
+        const picker = slot.fields.find(field => field.key.endsWith('Kind'));
+        const selected = draft[picker?.key ?? ''] ?? picker?.value ?? picker?.placeholder ?? '';
+        const choice = picker?.options?.find(option => option.value === selected);
+        // A named slot wins over the kind's own label: the point of renaming one
+        // is to tell two of the same subscription apart in the collapsed list.
+        const named = draft[`slot${slot.index + 1}Label`]
+          ?? slot.fields.find(field => field.key.endsWith('Label'))?.value;
+        const name = typeof named === 'string' && named.trim()
+          ? named.trim()
+          : (choice?.label ?? `Slot ${slot.index + 1}`);
         const isOpen = open[slot.index] === true;
 
         return (
@@ -146,7 +151,7 @@ export function SlotSettingsSection() {
               <span className="w-4 text-muted-foreground">{slot.index + 1}</span>
               <span className="flex-1 font-medium">{name}</span>
               <span className="text-xs text-muted-foreground">
-                {slot.locked ? 'Fixed' : 'Optional'}
+                {choice?.value && choice.value !== 'none' ? 'Tracking' : 'Not tracked'}
               </span>
             </button>
             {isOpen ? (

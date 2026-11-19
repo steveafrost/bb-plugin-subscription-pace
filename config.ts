@@ -7,9 +7,11 @@
  * names per property, generated once from `SLOT_KEYS` so the schema and the
  * reader can never disagree about how many slots exist.
  *
- * Slot 1 and slot 2 are fixed to the two subscriptions this plugin was built
- * for. Slots 3 to 5 take a kind from `CATALOG`, so the remaining three of the
- * "most popular five" are the user's choice without shipping twelve toggles.
+ * Every slot takes its kind from `CATALOG`, so all five are the user's choice:
+ * any provider can be tracked in any slot, and any slot can be emptied again
+ * without touching a setting the plugin owns. Nothing here is fixed to a
+ * subscription, because which subscriptions someone pays for is exactly what
+ * the plugin is meant to discover from them, not decide for them.
  *
  * Both live sources are read with credentials bb already calls with — the
  * Vercel AI Gateway key and the OpenCode key. Neither needs a second token, and
@@ -17,11 +19,7 @@
  * a Vercel account token and is refused by every platform billing path.
  */
 
-/** The two subscriptions that are always present. */
-export const LOCKED_KINDS = ['vercel-token-pass', 'opencode-go'] as const;
-export type LockedKind = (typeof LOCKED_KINDS)[number];
-
-/** Every kind a slot can be, locked ones included. */
+/** Every kind a slot can be. */
 export const CATALOG = [
   'vercel-token-pass',
   'opencode-go',
@@ -169,33 +167,38 @@ export const KIND_META: Record<SubscriptionKind, KindMeta> = {
 export const isKind = (value: unknown): value is SubscriptionKind =>
   typeof value === 'string' && (CATALOG as readonly string[]).includes(value);
 
-/** The kind a slot is fixed to, or what it is allowed to choose from. */
-export const FIXED_KIND: Record<number, LockedKind> = {
+/**
+ * The kinds an earlier build fixed to slots 1 and 2.
+ *
+ * Read only by the store's one-time upgrade: an install that predates free
+ * slots has the figure the user typed for each of those two but no kind stored
+ * beside it, so the kind is inferred from its position exactly once and written
+ * down. New installs start with every slot untracked, because a default here
+ * would track a subscription nobody picked — which is the thing this map exists
+ * to stop being permanent.
+ */
+export const LEGACY_LOCKED_KIND: Record<number, SubscriptionKind> = {
   0: 'vercel-token-pass',
   1: 'opencode-go',
 };
 
-export const isLockedSlot = (index: number): boolean => index in FIXED_KIND;
-
 /**
- * The candidate list for a free slot, in display order.
+ * The candidate list for a slot, in display order.
  *
- * `none` leads because a free slot starts untracked and "not tracked" belongs
+ * `none` leads because a slot starts untracked and "not tracked" belongs
  * where the other choices are, not as a second switch the reader has to find
  * and reconcile with the kind. Two controls that can disagree (enabled with no
  * kind, or a kind with tracking off) produce states the row then has to explain;
  * one choice cannot disagree with itself.
  */
-export const FREE_KIND_OPTIONS = ['none', ...CATALOG] as const;
+export const KIND_OPTIONS = ['none', ...CATALOG] as const;
 /** The option value meaning "this slot tracks nothing". */
 export const NO_KIND = 'none';
-export const isFreeKind = (value: unknown): value is SubscriptionKind =>
+export const isChosenKind = (value: unknown): value is SubscriptionKind =>
   typeof value === 'string' && value !== NO_KIND && isKind(value);
-/** Slots the user can point at any kind. */
-export const FREE_SLOTS = [2, 3, 4] as const;
 
 /**
- * The kind a free slot has when it names no subscription.
+ * The kind a slot has when it names no subscription.
  *
  * `readSlot` uses this rather than picking a plausible subscription, so an
  * untracked slot never borrows another kind's name, allowance or figures.
@@ -247,13 +250,12 @@ export const SLOT_COUNT = 5;
  */
 export function readSlot(values: Record<string, unknown>, index: number): Slot {
   const rawKind = values[`slot${index + 1}Kind`];
-  const locked = FIXED_KIND[index];
-  // A free slot with no stored choice is untracked, not silently given a
-  // default kind: a slot the user never opened must not start measuring
-  // something, and naming it after a guess would advertise a subscription they
-  // never picked. The picker's own default is `none`, so nothing is lost.
-  const freeChosen = isFreeKind(rawKind) ? rawKind : null;
-  const kind = locked ?? freeChosen ?? UNTRACKED_KIND;
+  // A slot with no stored choice is untracked, not silently given a default
+  // kind: a slot the user never opened must not start measuring something, and
+  // naming it after a guess would advertise a subscription they never picked.
+  // The picker's own default is `none`, so nothing is lost.
+  const chosen = isChosenKind(rawKind) ? rawKind : null;
+  const kind = chosen ?? UNTRACKED_KIND;
   const meta = KIND_META[kind];
   const field = (name: string) => values[`slot${index + 1}${name}`];
 
@@ -264,22 +266,19 @@ export function readSlot(values: Record<string, unknown>, index: number): Slot {
   return {
     index,
     kind,
-    // Locked slots are the reason the plugin exists, so they are on unless
-    // explicitly turned off. A free slot is on only once it names a kind, so
-    // "tracked" and "chosen" can never disagree.
+    // A slot is on only once it names a kind, so "tracked" and "chosen" can
+    // never disagree.
     //
-    // A free slot never reads `slotNEnabled`, even when an old build left one
-    // behind: a switch that the current UI cannot show would be a state the
-    // user cannot see or change, so the kind is the only thing that decides.
-    enabled: locked !== undefined
-      ? (field('Enabled') === undefined ? true : field('Enabled') !== false)
-      : freeChosen !== null,
+    // A slot never reads `slotNEnabled`, even when an old build left one behind:
+    // a switch the current UI cannot show would be a state the user cannot see
+    // or change, so the kind is the only thing that decides.
+    enabled: chosen !== null,
     label: typeof field('Label') === 'string' && (field('Label') as string).trim()
       ? (field('Label') as string).trim()
-      : locked === undefined && freeChosen === null
-        // A free slot with no kind has no subscription name to borrow, and
-        // naming it after the default kind would advertise a subscription the
-        // user never picked.
+      : chosen === null
+        // An untracked slot has no subscription name to borrow, and naming it
+        // after the default kind would advertise a subscription the user never
+        // picked.
         ? `Slot ${index + 1}`
         : meta.label,
     // Whether the user typed this figure is a separate fact from the figure

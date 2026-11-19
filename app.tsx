@@ -53,8 +53,8 @@ function SetupSteps() {
         + 'The rest are placeholders — set the real figure.',
     },
     {
-      title: 'Fill the three free slots',
-      detail: 'Slots 1 and 2 are Vercel Token Pass and OpenCode Go. Pick what the other three track, or leave them off.',
+      title: 'Pick what each slot tracks',
+      detail: 'All five slots are yours to fill. Pick a subscription per slot, or leave one on “Not tracked” and it measures nothing.',
     },
   ];
   return (

@@ -57,7 +57,86 @@ describe('slot store', () => {
     await expect(store.write({ slot1Allowance: 0 })).rejects.toThrow(/slot1Allowance/);
     await expect(store.write({ slot1RenewalDay: 32 })).rejects.toThrow(/slot1RenewalDay/);
     await expect(store.write({ slot3Kind: 'not-a-kind' })).rejects.toThrow(/slot3Kind/);
-    await expect(store.write({ slot1Kind: 'claude' })).rejects.toThrow(/unknown setting/);
+  });
+
+  it('accepts any catalogue kind in any slot', async () => {
+    // Every position is free, so a kind is valid wherever it is written. This
+    // used to throw for slots 1 and 2 with "unknown setting".
+    const store = createSlotStore({ kv: kv() });
+    for (let n = 1; n <= 5; n++) {
+      await expect(store.write({ [`slot${n}Kind`]: 'claude' })).resolves.toBeDefined();
+      await expect(store.write({ [`slot${n}Kind`]: 'opencode-go' })).resolves.toBeDefined();
+      await expect(store.write({ [`slot${n}Kind`]: 'none' })).resolves.toBeDefined();
+    }
+  });
+
+  it('adopts the kind an older build only implied, once', async () => {
+    // That build kept slots 1 and 2's subscription in its code, not in settings,
+    // and stored the figure the user typed. Reading the absent kind as
+    // "untracked" would silently stop measuring a subscription they had set up.
+    const db = hostDb([
+      { key: 'slot1Allowance', value: '150' },
+      { key: 'slot2Allowance', value: '100' },
+    ]);
+    const backing = kv();
+    const store = createSlotStore({
+      kv: backing,
+      legacy: { hostDbPath: db.path, pluginId: 'subscription-pace', open: db.open },
+    });
+    const values = await store.read();
+    expect(values.slot1Kind).toBe('vercel-token-pass');
+    expect(values.slot2Kind).toBe('opencode-go');
+    expect(values.slot1Allowance).toBe(150);
+    // Written down, so the inference happens once and the user can then change
+    // it like any other kind.
+    expect(backing.rows.get('slotValues')).toMatchObject({
+      slot1Kind: 'vercel-token-pass',
+      slot2Kind: 'opencode-go',
+    });
+  });
+
+  it('adopts nothing for a slot the older build left unconfigured', async () => {
+    // A fixed slot was on by default with nothing entered. Inventing a kind for
+    // it would track a subscription nobody chose, which is what the picker exists
+    // to stop.
+    const db = hostDb([{ key: 'slot3Kind', value: '"codex"' }]);
+    const backing = kv();
+    const store = createSlotStore({
+      kv: backing,
+      legacy: { hostDbPath: db.path, pluginId: 'subscription-pace', open: db.open },
+    });
+    const values = await store.read();
+    expect(values.slot1Kind).toBe('none');
+    expect(values.slot2Kind).toBe('none');
+    expect(readSlot(values, 0).enabled).toBe(false);
+    expect(readSlot(values, 1).enabled).toBe(false);
+  });
+
+  it('does not adopt a kind for a slot the older build turned off', async () => {
+    // An explicit "off" is a choice, and it must survive the upgrade rather than
+    // being overwritten by the position's old subscription.
+    const db = hostDb([
+      { key: 'slot1Enabled', value: 'false' },
+      { key: 'slot1Allowance', value: '150' },
+    ]);
+    const store = createSlotStore({
+      kv: kv(),
+      legacy: { hostDbPath: db.path, pluginId: 'subscription-pace', open: db.open },
+    });
+    expect((await store.read()).slot1Kind).toBe('none');
+  });
+
+  it('lets a subscription be removed by naming no kind', async () => {
+    // The removal path through the store, with no second switch to leave behind.
+    const store = createSlotStore({ kv: kv() });
+    await store.write({ slot1Kind: 'vercel-token-pass', slot1Allowance: 150 });
+    expect(readSlot(await store.read(), 0).enabled).toBe(true);
+    const cleared = await store.write({ slot1Kind: 'none' });
+    expect(cleared.slot1Kind).toBe('none');
+    expect(readSlot(cleared, 0).enabled).toBe(false);
+    // The allowance stays as it was: it is a figure the user typed, and
+    // re-tracking the same subscription should not lose it.
+    expect(cleared.slot1Allowance).toBe(150);
   });
 
   it('treats null as "back to the default"', () => {

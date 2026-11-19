@@ -3,9 +3,11 @@
 One panel for several AI subscription allowances: how much of each is used, whether it lasts
 to its reset, and which of them needs attention — one chart with a filter per subscription.
 
-Five slots. **Vercel Token Pass** and **OpenCode Go** are fixed in slots 1 and 2; slots 3–5
-take any kind from the catalogue (Claude Pro/Max, ChatGPT/Codex, GitHub Copilot, Cursor,
-Gemini, the Anthropic and OpenAI APIs, or a plain figure you type in).
+Five slots, and any one of them can track any kind from the catalogue (Vercel Token Pass,
+OpenCode Go, Claude Pro/Max, ChatGPT/Codex, GitHub Copilot, Cursor, Gemini, the Anthropic and
+OpenAI APIs, or a plain figure you type in). No slot is fixed to a subscription: nothing here
+decides what you pay for, and a provider can be dropped from a slot by setting it back to
+`Not tracked`.
 
 ## The one axis: percent of allowance
 
@@ -147,14 +149,13 @@ extrapolating a hit day from it.
 
 22 fields: two secrets plus four per slot.
 
-- Slots 1–2 are fixed to Vercel Token Pass and OpenCode Go, so they get an on/off switch, a
-  display name, an allowance and a renewal day.
-- Slots 3–5 get a subscription picker (`Not tracked` is off), an allowance and a renewal day.
-  A plan with no readable usage adds one field, the spend so far this period. Its date is not a
-  setting: the plugin stamps the figure with the day it last changed. A free slot has no on/off
-  switch: picking a subscription turns it on, and `Not tracked` turns it off. An `Enabled` row
-  left in the host database by an earlier build is ignored, because nothing in this UI could show
-  or change it.
+- Every slot gets the same four: a subscription picker (`Not tracked` is off), a display name,
+  an allowance and a renewal day. A plan with no readable usage also uses the spend so far this
+  period. That figure's date is not a setting: the plugin stamps it with the day it last changed.
+- There is no on/off switch. Picking a subscription turns the slot on and `Not tracked` turns it
+  off, so "tracked" and "chosen" cannot disagree — and removing a provider is one control, not
+  two. An `Enabled` row left in the host database by an earlier build is ignored, because nothing
+  in this UI could show or change it.
 
 Each slot is its own collapsible card, collapsed until you open it. The two live credentials stay
 in the host's settings form above them, as secrets stored `0600` under the plugin's data directory.

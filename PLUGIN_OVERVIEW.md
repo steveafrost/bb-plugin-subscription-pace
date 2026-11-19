@@ -68,5 +68,5 @@ the provider they belong to.
 3. For the Codex slot, enable BB's Codex provider and sign in — `bb plugin enable provider-codex`.
    Without it that slot reads as unreadable rather than 0%.
 
-Slots 1 and 2 are on unless you switch them off. Slots 3 to 5 are off until you name a
-subscription, so an empty slot never starts measuring something you did not choose.
+Every slot is off until you name a subscription, so an empty slot never starts measuring
+something you did not choose — and any slot can be emptied again the same way.

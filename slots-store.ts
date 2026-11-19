@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  FIXED_KIND, KIND_META, NO_KIND, SLOT_COUNT, isFreeKind, isKind,
+  KIND_META, LEGACY_LOCKED_KIND, NO_KIND, SLOT_COUNT, isChosenKind, isKind,
 } from './config.js';
 
 /**
@@ -39,17 +39,17 @@ function slotSchemas(): Record<string, z.ZodTypeAny> {
     const n = index + 1;
     fields[`slot${n}Allowance`] = allowance;
     fields[`slot${n}RenewalDay`] = renewalDay;
-    if (FIXED_KIND[index]) {
-      fields[`slot${n}Enabled`] = z.boolean();
-      fields[`slot${n}Label`] = label;
-    } else {
-      // `none` is a value, not an absence: it is the slot's off state, so it
-      // has to survive a round trip rather than collapse into "unset".
-      fields[`slot${n}Kind`] = z.string().refine(kind => kind === NO_KIND || isFreeKind(kind), {
-        message: 'unknown subscription',
-      });
-      fields[`slot${n}ManualSpend`] = manualSpend;
-    }
+    fields[`slot${n}Label`] = label;
+    fields[`slot${n}ManualSpend`] = manualSpend;
+    // `none` is a value, not an absence: it is the slot's off state, so it
+    // has to survive a round trip rather than collapse into "unset".
+    fields[`slot${n}Kind`] = z.string().refine(kind => kind === NO_KIND || isChosenKind(kind), {
+      message: 'unknown subscription',
+    });
+    // Kept so an install from the fixed-slot build keeps its on/off choice, and
+    // so `readSlot`'s explicit "this row is ignored" stays true rather than
+    // becoming an unknown-key failure the settings page would show as an error.
+    fields[`slot${n}Enabled`] = z.boolean();
   }
   return fields;
 }
@@ -95,7 +95,6 @@ export function validatePatch(patch: SlotValues): SlotValues {
 export function slotDefaults(): SlotValues {
   const values: SlotValues = {};
   for (let index = 0; index < SLOT_COUNT; index++) {
-    if (FIXED_KIND[index]) continue;
     values[`slot${index + 1}Kind`] = NO_KIND;
   }
   return values;
@@ -144,6 +143,37 @@ async function readLegacyValues(
   } finally {
     try { db?.close(); } catch { /* nothing to recover */ }
   }
+}
+
+/**
+ * Writes down the kind an earlier build kept implicitly.
+ *
+ * Before slots were free, slots 1 and 2 had no kind stored: the build knew
+ * their subscription from their position alone. An upgrade therefore holds the
+ * figure someone typed for Vercel Token Pass with nothing saying it belongs to
+ * Vercel Token Pass, and reading that absence as "untracked" would silently
+ * stop measuring a subscription they had configured.
+ *
+ * The kind is inferred only where the slot carries evidence of having been set
+ * up — some stored value of its own — and never where it was explicitly turned
+ * off. A slot that was on by default with nothing entered leaves no evidence,
+ * and inventing a kind for it would track a subscription nobody chose, which is
+ * the failure this whole change exists to remove.
+ */
+function adoptLegacyKinds(values: SlotValues): SlotValues {
+  let changed = false;
+  const next = { ...values };
+  for (const [key, kind] of Object.entries(LEGACY_LOCKED_KIND)) {
+    const n = Number(key) + 1;
+    if (next[`slot${n}Kind`] !== undefined) continue;
+    if (next[`slot${n}Enabled`] === false) continue;
+    const configured = ['Allowance', 'RenewalDay', 'Label', 'ManualSpend', 'Enabled']
+      .some(name => next[`slot${n}${name}`] !== undefined);
+    if (!configured) continue;
+    next[`slot${n}Kind`] = kind;
+    changed = true;
+  }
+  return changed ? next : values;
 }
 
 /** Keep whichever inherited values still satisfy today's rules. */
@@ -196,18 +226,23 @@ export function createSlotStore(args: {
     const stored = await args.kv.get<SlotValues>(STORE_KEY);
     // Defaults are merged in at read time, never persisted, so a value here is
     // always one the user or an earlier build actually chose.
-    const chosen = stored ? validateOrDiscard(stored) : {};
+    const validated = stored ? validateOrDiscard(stored) : {};
+    const chosen = adoptLegacyKinds(validated);
     if (stored) {
       cache = { ...defaults, ...chosen };
+      // Persist an adopted kind so the inference happens once, not on every
+      // load: from here on the slot's subscription is a value the user can see
+      // and change, not something derived from its position.
+      if (chosen !== validated) await args.kv.set(STORE_KEY, storedOnly(chosen));
       return cache;
     }
     // Nothing in our own store: this is either a first run or an upgrade from
     // the descriptor-based build. Inherit the old rows so the user does not
     // have to re-pick what they had already chosen, then persist them so the
     // host table is consulted exactly once.
-    const inherited = args.legacy
+    const inherited = adoptLegacyKinds(args.legacy
       ? await readLegacyValues(args.legacy.hostDbPath, args.legacy.pluginId, args.legacy.open)
-      : {};
+      : {});
     cache = { ...defaults, ...inherited };
     if (Object.keys(inherited).length > 0) await args.kv.set(STORE_KEY, storedOnly(inherited));
     return cache;
