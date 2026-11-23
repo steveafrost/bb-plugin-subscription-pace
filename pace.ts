@@ -97,6 +97,78 @@ export function percentLine(
     .join(' ');
 }
 
+/**
+ * The straight line the trailing rate draws from today's figure to the renewal.
+ *
+ * Distinct from `slot.projectedPercent`, which is the same arithmetic but only
+ * ever one number at the right edge of the window — the verdict text needs a
+ * landing point, not a shape. A trend line has to stay straight on a calendar
+ * axis, so it is two points and every day between them is interpolated by the
+ * line rather than listed.
+ *
+ * Null rather than a flat line when there is no rate: `ratePercentPerDay` is
+ * null for a single reading, for spend that stopped before today, and for a
+ * figure carried over from a finished period. Drawing a horizontal line through
+ * any of those would claim the allowance is being consumed at zero, which is a
+ * different statement from "this cannot be projected".
+ */
+export function trendLine(
+  slot: {
+    usedPercent: number | null;
+    ratePercentPerDay: number | null;
+    projectedPercent: number | null;
+  },
+  today: string,
+  renewal: string,
+): { day: string; percent: number }[] {
+  const { usedPercent, ratePercentPerDay, projectedPercent } = slot;
+  if (usedPercent === null || ratePercentPerDay === null) return [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(today) || !/^\d{4}-\d{2}-\d{2}$/.test(renewal)) return [];
+  // The collector's figure wins over re-deriving it here. It is the one the row
+  // prints as "N% projected at renewal", and a chart that recomputed it could
+  // disagree with the row it sits under — by a rounding step, or by more if the
+  // two ever stopped counting days the same way.
+  const daysLeft = Math.max(0, daysBetween(today, renewal) - 1);
+  return [
+    { day: today, percent: usedPercent },
+    { day: renewal, percent: projectedPercent ?? usedPercent + ratePercentPerDay * daysLeft },
+  ];
+}
+
+/**
+ * A trend line cut off at the top of the frame, and where it left.
+ *
+ * The axis is pinned to `PERCENT_MAX` so every line is read against one frame —
+ * a chart that rescales to whichever subscription is forecast worst would squash
+ * a 26% line to nothing. The cost is that an honest projection can run off the
+ * top, and simply drawing it there loses the line entirely: live data had the
+ * Token Pass trending to 234%, so the dashed line and its end dot both landed
+ * above the plot and the chart showed no projection at all.
+ *
+ * So the line is truncated where it crosses the top and the crossing is reported,
+ * which the chart draws as an arrow. The projection is then still visible and
+ * still points off the chart, which is the truer picture than a squashed axis.
+ */
+export function clipTrend(
+  points: { day: string; percent: number }[],
+  max: number,
+): { points: { day: string; percent: number }[]; offChart: boolean } {
+  if (points.length < 2) return { points, offChart: false };
+  const [from, to] = points;
+  if (from === undefined || to === undefined) return { points, offChart: false };
+  if (to.percent <= max) return { points, offChart: false };
+  // The line is straight in (day, percent), so the crossing is a plain
+  // interpolation along it — no search, and the day it reports is the day the
+  // allowance would actually be gone, which is the one interesting fact here.
+  const span = to.percent - from.percent;
+  const fraction = span <= 0 ? 0 : (max - from.percent) / span;
+  const days = daysBetween(from.day, to.day) * Math.max(0, Math.min(1, fraction));
+  return {
+    points: [from, { day: addDays(from.day, Math.floor(days)), percent: max }],
+    offChart: true,
+  };
+}
+
 /** Closes a line down to the floor so it can be filled. */
 export function area(points: Point[], s: Pick<Scales, 'x' | 'y'>, floorY: number): string {
   if (points.length === 0) return '';

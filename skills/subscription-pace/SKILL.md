@@ -13,7 +13,10 @@ to its reset, and which needs attention — one chart, plus a filter per subscri
 The unit is **percent of that subscription's own allowance**, because the providers disagree
 on everything else: Vercel publishes dollars, OpenCode publishes percentages and no history.
 That percent is the chart's y-axis, fixed at 0–110% so the allowance rule stays visible at any
-scale.
+scale. Each series continues past today as a dashed line at its trailing seven-day rate, landing
+on the row's own "projected at renewal" figure. No rate (one reading, spend that stopped before
+today, or a figure carried from a finished period) means no dashed line, because a flat one
+would claim zero consumption rather than an unknown rate; the caption names those slots and why.
 
 - The header count — **there is no combined percentage, and do not invent one.** It says how
   many readable subscriptions are either over their limit or on pace to run out before they
