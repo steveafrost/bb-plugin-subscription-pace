@@ -13,7 +13,10 @@ to its reset, and which needs attention — one chart, plus a filter per subscri
 The unit is **percent of that subscription's own allowance**, because the providers disagree
 on everything else: Vercel publishes dollars, OpenCode publishes percentages and no history.
 That percent is the chart's y-axis, fixed at 0–110% so the allowance rule stays visible at any
-scale.
+scale. Each series continues past today as a dashed line at its trailing seven-day rate, landing
+on the row's own "projected at renewal" figure. No rate (one reading, spend that stopped before
+today, or a figure carried from a finished period) means no dashed line, because a flat one
+would claim zero consumption rather than an unknown rate; the caption names those slots and why.
 
 - The header count — **there is no combined percentage, and do not invent one.** It says how
   many readable subscriptions are either over their limit or on pace to run out before they
@@ -88,8 +91,11 @@ renewal day is configured rather than discovered.
 - **Vercel**: `/v1/credits` is the authoritative live balance; `/v1/report` supplies the daily
   shape. The two disagree — the pass-only report sums to $80.02 of an $80 pass while credits
   says $2.31 is left — and the report is what the row prints while it has rows. It lags by
-  several days, so when it returns none at all the fallback is `min(total_used, $80)`: the pass
-  is drawn down before the gateway's own $5 credit, so pass spend never exceeds the pass.
+  several days, so when it returns none at all the fallback is `min(total_used, allowance)`
+  against the slot's configured allowance: the pass is drawn down before the gateway's own $5
+  credit, so pass spend never exceeds the pass. The percentage is `spend / that same allowance`,
+  never `/ $80` — a pass larger than the catalogue's default would otherwise print dollars
+  against the configured figure and a percentage against the constant.
   Subtracting the $5 instead credited an exhausted pass back to 97%, which is the defect this
   replaced. Either way the two can disagree by a few cents, which is why the chart's last point
   is pinned to the row's figure rather than to the report's own total.

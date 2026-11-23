@@ -34,6 +34,25 @@ means over the limit *or* on pace to run out before the next reset. That second 
 part a combined average could never express — 60% used is unremarkable until you learn it
 happened in three days.
 
+## The dashed line
+
+Each measured series is continued to its renewal as a straight dashed line, from the trailing
+rate over the last seven days to the figure the row calls "N% projected at renewal". It is the
+same arithmetic as that row by construction — the chart reads `projectedPercent` rather than
+recomputing it — so the line and the number under it cannot disagree.
+
+It is drawn only where a rate exists. A single reading, a spend that stopped before today, and a
+figure carried over from a finished period all report `ratePercentPerDay = null`, and each of
+those would become a *horizontal* line if drawn flat, which asserts the allowance is being
+consumed at zero rather than that it cannot be projected. The caption names the subscriptions
+in that position and gives each one its own reason.
+
+The y-axis stays pinned at 0–110% while this line is drawn, so an honest projection can leave
+the top: live data had the Token Pass trending to 234%. It is truncated where it crosses the
+frame and marked with an arrow, and its label keeps the real figure. Rescaling the axis to fit
+the worst forecast would squash a 26% line to nothing, which costs more than a line running off
+the top with an arrow saying so.
+
 ## Where the numbers come from
 
 | Source | Endpoint | What it returns |

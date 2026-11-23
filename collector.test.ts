@@ -193,6 +193,35 @@ describe('Vercel Token Pass', () => {
     expect(vercel.lastSpendDay).toBe('2026-11-09');
     expect(vercel.ratePercentPerDay).not.toBeNull();
   });
+
+  it('measures the percentage against the allowance the row prints', async () => {
+    // A larger pass than the $80 the catalogue advertises. The row prints its
+    // dollars against the figure in settings, so the percentage beside them must
+    // divide by that same figure. Dividing by the $80 constant instead produced
+    // "$35.28 of $150.00 spent" beside a "44%" that was really 35.28/80 = 23.5%,
+    // and the hit-day projection inherited the error.
+    const snapshot = await collector(router({
+      report: () => report([{ day: '2026-11-09', usd: 35.28 }]),
+    })).measure(readSlots(slotValues({ slot1Allowance: 150 })), keys);
+    const vercel = snapshot.slots[0]!;
+    expect(vercel.spentUsd).toBeCloseTo(35.28, 2);
+    expect(vercel.usedPercent).toBeCloseTo(23.52, 2);
+    // The two figures now agree, which is the whole assertion: the percentage is
+    // the dollars over the same allowance the row shows.
+    expect(vercel.usedPercent).toBeCloseTo(vercel.spentUsd! / 150 * 100, 6);
+  });
+
+  it('caps the no-report fallback at the configured allowance, not $80', async () => {
+    // The same mismatch reached the fallback path: total_used is pool-wide, so it
+    // is capped at the pass. Capping at the constant reported a $150 pass as
+    // fully spent once $80 of it was gone.
+    const snapshot = await collector(router({ credits: () => credits(55, 95) }))
+      .measure(readSlots(slotValues({ slot1Allowance: 150 })), keys);
+    const vercel = snapshot.slots[0]!;
+    expect(vercel.spentUsd).toBeCloseTo(95, 5);
+    expect(vercel.usedPercent).toBeCloseTo(95 / 150 * 100, 5);
+    expect(vercel.remainingUsd).toBeCloseTo(55, 5);
+  });
 });
 
 describe('OpenCode Go', () => {

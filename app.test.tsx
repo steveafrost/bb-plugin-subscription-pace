@@ -361,7 +361,9 @@ describe('Subscription Pace panel', () => {
 
   it('says a single-point subscription has no history rather than drawing a line', async () => {
     const view = await renderPanel(snapshot([opencode]));
-    expect(await view.findByText(/one reading so far/i)).toBeTruthy();
+    // The caption carries the same fact the single dot does, and now also carries
+    // why: the dot means one reading, which is also why no dashed trend leaves it.
+    expect(await view.findByText(/has one reading, so there is no rate to continue/i)).toBeTruthy();
   });
 
   it('warns when a source has recorded nothing this period', async () => {

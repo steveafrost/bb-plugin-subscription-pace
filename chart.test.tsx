@@ -245,3 +245,121 @@ describe('CombinedChart reset date', () => {
     expect(drawn()).toContain('Vercel Token Pass 40%');
   });
 });
+
+/**
+ * The dashed trend line is the only part of the chart that states the future, so
+ * these tests pin both that it is drawn and that it refuses to be drawn from a
+ * figure that cannot honestly be projected.
+ */
+describe('CombinedChart trend line', () => {
+  /** The dashed paths, told apart from the solid measured ones by their dash. */
+  const dashed = (): string[] =>
+    Array.from(document.querySelectorAll('svg path'))
+      .filter(node => (node.getAttribute('stroke-dasharray') ?? '') === '6 5')
+      .map(node => node.getAttribute('d') ?? '');
+
+  it('projects the trailing rate to the renewal day', () => {
+    // 40% on Nov 9 with 10 days to Nov 20 at 2%/day: 40 + 20 = 60%.
+    render(<CombinedChart slots={[slot({ index: 0 })]} />);
+
+    expect(dashed()).toHaveLength(1);
+    expect(drawn()).toContain('Vercel Token Pass → 60%');
+    expect(screen.getByRole('img').getAttribute('aria-label'))
+      .not.toMatch(/no projection/);
+  });
+
+  it('draws nothing rather than a flat line when there is no rate', () => {
+    // A flat dashed line would say the allowance is being consumed at zero, which
+    // is a different claim from "this cannot be projected": a single reading, a
+    // quiet tail and a carried-over figure all arrive here.
+    render(<CombinedChart slots={[slot({ index: 0, ratePercentPerDay: null })]} />);
+
+    expect(dashed()).toEqual([]);
+    expect(drawn().some(text => text.includes('→'))).toBe(false);
+  });
+
+  it('says which subscription has no projection, and why', () => {
+    // Silence is the problem: a missing line sits on top of the measured one and
+    // reads as a projection that happens to be flat. The reason has to be the
+    // slot's own — this one has a single reading, not a quiet tail.
+    render(<CombinedChart slots={[
+      slot({ index: 0 }),
+      slot({
+        index: 1, label: 'OpenCode Go', ratePercentPerDay: null,
+        daily: [{ day: '2026-11-09', percent: 25 }],
+      }),
+    ]} />);
+
+    expect(screen.getByText(/OpenCode Go has one reading/)).toBeTruthy();
+  });
+
+  it('names a quiet tail rather than calling it a missing reading', () => {
+    // A slot with a week of readings that stopped spending has no rate for a
+    // different reason, and telling the reader it needs two readings would be
+    // false about a slot whose line is right there on the chart.
+    render(<CombinedChart slots={[
+      slot({ index: 0 }),
+      slot({ index: 1, label: 'OpenCode Go', ratePercentPerDay: null }),
+    ]} />);
+
+    expect(screen.getByText(/OpenCode Go stopped spending before today/)).toBeTruthy();
+  });
+
+  it('separates two labels that land within a few percent of each other', () => {
+    // Two subscriptions projected to the same figure would otherwise print one
+    // label on top of the other, and an unreadable pair reads as no label.
+    render(<CombinedChart slots={[
+      slot({ index: 0, usedPercent: 40, ratePercentPerDay: 2, projectedPercent: 62 }),
+      slot({ index: 1, label: 'Second', usedPercent: 41, ratePercentPerDay: 2, projectedPercent: 63 }),
+    ]} />);
+
+    const labels = Array.from(document.querySelectorAll('svg text'))
+      .filter(node => (node.textContent ?? '').includes('→'))
+      .map(node => Number(node.getAttribute('y')));
+    expect(labels).toHaveLength(2);
+    expect(Math.abs(labels[0]! - labels[1]!)).toBeGreaterThanOrEqual(14);
+  });
+
+  it('keeps the dotted line on the calendar, not past the renewal', () => {
+    // The projection has to stop where the window does. A trend drawn to a day
+    // beyond the axis would either extend the window silently or clamp at the
+    // edge while its label claimed a later date.
+    render(<CombinedChart slots={[slot({ index: 0, renewal: '2026-11-20' })]} />);
+
+    const [only] = dashed();
+    expect(only).toBeTruthy();
+    const xs = [...only!.matchAll(/([ML])([-\d.]+),/g)].map(match => Number(match[2]));
+    expect(xs).toHaveLength(2);
+    expect(Math.min(...xs)).toBeLessThan(Math.max(...xs));
+  });
+});
+
+describe('CombinedChart off-chart projection', () => {
+  it('draws a line that leaves the top instead of losing it', () => {
+    // The axis is pinned to PERCENT_MAX so every line reads against one frame, so
+    // an honest projection can run past it. Drawn naively the whole line sits
+    // above the plot and disappears: live data had the Token Pass trending to
+    // 234%, and the chart then showed no projection at all.
+    render(<CombinedChart slots={[slot({
+      index: 0, usedPercent: 26, ratePercentPerDay: 7.7, projectedPercent: 234,
+    })]} />);
+
+    const dashed = Array.from(document.querySelectorAll('svg path'))
+      .filter(node => (node.getAttribute('stroke-dasharray') ?? '') === '6 5');
+    expect(dashed).toHaveLength(1);
+    // Still inside the box: no coordinate above padTop or below the floor.
+    const ys = [...(dashed[0]!.getAttribute('d') ?? '').matchAll(/,([-\d.]+)/g)]
+      .map(match => Number(match[1]));
+    expect(ys.every(y => y >= 27 && y <= 261)).toBe(true);
+  });
+
+  it('reports the figure the projection reaches, not the edge it is cut at', () => {
+    // The label has to stay the real answer. Printing 110% — the frame's top —
+    // would state the clip as though the rate had been measured against it.
+    render(<CombinedChart slots={[slot({
+      index: 0, usedPercent: 26, ratePercentPerDay: 7.7, projectedPercent: 234,
+    })]} />);
+
+    expect(drawn()).toContain('Vercel Token Pass → 234%');
+  });
+});
