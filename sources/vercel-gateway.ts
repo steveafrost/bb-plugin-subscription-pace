@@ -6,6 +6,14 @@ export type { SourceResult } from './types.js';
 /**
  * Vercel Token Pass, measured two ways from one credential.
  *
+ * The percentage is a share of the slot's *configured* allowance, never of the
+ * $80 the catalogue advertises. Vercel's pool arithmetic below is written for
+ * an $80 pass, but a pass is only $80 at the price it launched at: an account on
+ * a larger one types its real figure into settings, and the row prints its
+ * dollars against that figure. Dividing the percentage by a constant instead
+ * made one row state two different truths — "$35.28 of $150.00 spent" beside a
+ * "44%" that was 35.28/80 — and every pace verdict inherited it.
+ *
  * `/v1/credits` is the authoritative number: it returns `balance` and
  * `total_used`, which sum to a constant ($85 here — the $80 Token Pass credit
  * plus the $5 AI Gateway monthly credit). The pass has no separate balance
@@ -78,12 +86,17 @@ async function readReport(
 }
 
 export async function readVercelSpend(
-  args: { key: string; start: string; end: string },
+  args: { key: string; start: string; end: string; allowanceUsd: number },
   request: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<SourceResult> {
   if (!args.key.trim()) return { ok: false, reason: 'unauthenticated' };
   const key = args.key.trim();
+  // The slot's own allowance is the denominator for both the percentage and the
+  // fallback cap. A non-positive figure cannot reach here (`readSlot` falls back
+  // to the kind's default), but dividing by it would produce Infinity rather
+  // than a number, so the catalogue's $80 stands in instead.
+  const allowanceUsd = args.allowanceUsd > 0 ? args.allowanceUsd : TOKEN_PASS_CREDIT_USD;
   try {
     const credits = await readCredits(key, request, signal);
     if ('ok' in credits) return credits;
@@ -106,12 +119,12 @@ export async function readVercelSpend(
     // the fallback from inventing credit, which is what `total_used - 5` did.
     const spentUsd = measured.length > 0
       ? reported
-      : Math.min(credits.totalUsed, TOKEN_PASS_CREDIT_USD);
+      : Math.min(credits.totalUsed, allowanceUsd);
 
     const lastActivity = measured.length > 0 ? measured[measured.length - 1]!.day : null;
 
     const measure: Measure = {
-      usedPercent: spentUsd / TOKEN_PASS_CREDIT_USD * 100,
+      usedPercent: spentUsd / allowanceUsd * 100,
       spentUsd,
       daily: measured,
       // Vercel publishes no billing period to this credential; the configured

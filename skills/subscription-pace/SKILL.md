@@ -88,8 +88,11 @@ renewal day is configured rather than discovered.
 - **Vercel**: `/v1/credits` is the authoritative live balance; `/v1/report` supplies the daily
   shape. The two disagree — the pass-only report sums to $80.02 of an $80 pass while credits
   says $2.31 is left — and the report is what the row prints while it has rows. It lags by
-  several days, so when it returns none at all the fallback is `min(total_used, $80)`: the pass
-  is drawn down before the gateway's own $5 credit, so pass spend never exceeds the pass.
+  several days, so when it returns none at all the fallback is `min(total_used, allowance)`
+  against the slot's configured allowance: the pass is drawn down before the gateway's own $5
+  credit, so pass spend never exceeds the pass. The percentage is `spend / that same allowance`,
+  never `/ $80` — a pass larger than the catalogue's default would otherwise print dollars
+  against the configured figure and a percentage against the constant.
   Subtracting the $5 instead credited an exhausted pass back to 97%, which is the defect this
   replaced. Either way the two can disagree by a few cents, which is why the chart's last point
   is pinned to the row's figure rather than to the report's own total.

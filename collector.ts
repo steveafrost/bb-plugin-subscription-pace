@@ -406,7 +406,15 @@ export function createCollector(options: {
     const carriedFrom = stamp?.carriedFrom ?? null;
     const result = slot.source === 'vercel-gateway'
       ? await readVercelSpend(
-        { key: keys.gateway, start: provisional.start, end: provisional.end },
+        {
+          key: keys.gateway,
+          start: provisional.start,
+          end: provisional.end,
+          // Passed in rather than read from the source's own $80 constant: the
+          // row prints dollars against this figure, so the percentage beside it
+          // must divide by the same one.
+          allowanceUsd: slot.allowanceUsd,
+        },
         options.fetch ?? fetch,
         controller.signal,
       )
